@@ -1,10 +1,42 @@
 # scraper-for-facebook
 
+[![PyPI](https://img.shields.io/pypi/v/scraper-for-facebook.svg)](https://pypi.org/project/scraper-for-facebook/)
+[![Python versions](https://img.shields.io/pypi/pyversions/scraper-for-facebook.svg)](https://pypi.org/project/scraper-for-facebook/)
+[![CI](https://github.com/tjdwls101010/Scraper-for-Facebook/actions/workflows/ci.yml/badge.svg)](https://github.com/tjdwls101010/Scraper-for-Facebook/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Scrape posts from a **logged-in personal Facebook timeline** by observing the GraphQL responses your own browser session makes — no token replay, no credential injection. You log in once by hand; the browser generates its own `fb_dtsg`/`doc_id`/`lsd`, and this tool just reads what comes back.
 
 > **Read [DISCLAIMER.md](DISCLAIMER.md) before using this.** Automating a Facebook account violates its Terms of Service, publishing this tool exposes its maintainer, and scraping other people's posts can make *you* a data controller over their personal data. Use a dedicated/throwaway account, not your primary one.
 
 **This is not the first tool that does this.** [`facebook-graphql-scraper`](https://pypi.org/project/facebook-graphql-scraper/) captures GraphQL responses via Selenium + `selenium-wire` with credential-based login. This project's difference is incremental, not categorical: it reuses a **persisted browser-login profile** instead of injecting a username/password, and builds on [scrapling](https://github.com/D4Vinci/Scrapling)'s modern, actively-maintained fetch stack (Playwright-driven Chromium) instead of the largely-unmaintained `selenium-wire`.
+
+## Contents
+
+- [Features](#features)
+- [How it works](#how-it-works)
+- [Install](#install)
+- [Quick start](#quick-start)
+- [Example output](#example-output)
+- [CLI reference](#cli-reference)
+- [Guardrails](#guardrails)
+- [Limitations (v1)](#limitations-v1)
+- [Python API](#python-api)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Features
+
+- **No Graph API, no app review, no credential injection** — reuses your own persisted, logged-in browser profile.
+- Retrieval by count (`--limit`) or date window (`--since`/`--until`), with honest reporting of whether the requested window was actually reached (never silently reports a partial run as complete).
+- Full post schema: body text (truncation-resolved), media and link attachments, reaction/comment/share counts, pinned flag, edited time, and one level of shared/quoted posts.
+- JSON or NDJSON output, plus a typed Python API (`FacebookScraper`) for programmatic use.
+- One **non-bypassable** floor on scroll pacing — the one hard limit that keeps this from being usable as a mass-scraping tool, enforced in code, not just asked for in prose.
+
+## How it works
+
+`scrape-fb` never calls Facebook's Graph API and never replays a token. It drives a real, logged-in Chromium session (via [Playwright](https://playwright.dev/)) against your own persisted profile, scrolls a target timeline, and reads the same `/api/graphql/` responses your browser already receives — then parses posts out of that JSON. Because the browser generates its own `fb_dtsg`/`doc_id`/`lsd` values on every request, there's no token to steal, maintain, or refresh; the tradeoff is that this only sees what your logged-in account can already see, and it degrades whenever Facebook's response shape changes (see [Limitations](#limitations-v1)).
 
 ## Install
 
@@ -40,6 +72,36 @@ scrape-fb fetch https://www.facebook.com/some.profile --limit 30
 ```
 
 Output defaults to a JSON file under this tool's own data directory (never your current directory or stdout — see `--output` below), because captured posts contain other people's personal data (§4 of the disclaimer) that shouldn't casually end up in a git-tracked path.
+
+## Example output
+
+Each post in the JSON/NDJSON output looks like this (values below are illustrative, not a real capture):
+
+```json
+{
+  "id": "ZmVlZGJhY2s6MTIzNDU2Nzg5MDEyMzQ1",
+  "url": "https://www.facebook.com/some.profile/posts/pfbid02example",
+  "type": "status",
+  "is_pinned": false,
+  "author_name": "Jane Example",
+  "author_url": "https://www.facebook.com/some.profile",
+  "author_id": "100000000000001",
+  "created_at": "2026-06-30T09:15:36Z",
+  "edited_at": null,
+  "text": "Full post body, truncation-resolved if it was ever cut short...",
+  "text_truncated": false,
+  "text_resolved": false,
+  "media": [],
+  "links": [],
+  "reaction_count": 370,
+  "comment_count": 32,
+  "share_count": 14,
+  "shared_post": null,
+  "captured_at": "2026-07-05T03:18:13.385206Z"
+}
+```
+
+See the [Output Schema](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki/Output-Schema) wiki page for a field-by-field reference, including `media`/`links`/`shared_post` shapes.
 
 ## CLI reference
 
@@ -116,6 +178,20 @@ with FacebookScraper(profile="default") as fb:                 # headless reuse
 
 FacebookScraper(profile="default").status()   # -> Status.LOGGED_IN | EXPIRED | CHECKPOINT
 ```
+
+## Documentation
+
+This README covers the essentials. For everything else, see the **[wiki](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki)**:
+
+- [Installation](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki/Installation) — platform notes, upgrading, uninstalling
+- [Quick Start](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki/Quick-Start) — a longer walkthrough than this README's
+- [CLI Reference](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki/CLI-Reference) — every flag, every exit code, with examples
+- [Python API Reference](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki/Python-API-Reference)
+- [Output Schema](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki/Output-Schema) — every `Post`/`Media`/`LinkAttachment` field explained
+- [Configuration](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki/Configuration) — profiles, environment variables, tuning scroll pacing
+- [FAQ & Troubleshooting](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki/FAQ-and-Troubleshooting)
+- [Security & Privacy](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki/Security-and-Privacy) — the full threat model behind [DISCLAIMER.md](DISCLAIMER.md)
+- [Contributing](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki/Contributing) — dev setup, testing, release process
 
 ## Contributing
 
