@@ -1,9 +1,12 @@
 name: Publish to PyPI
 
+# Fires when a GitHub Release is published (Releases page -> "Draft a new
+# release" -> pick/create tag vX.Y.Z -> Publish release) — NOT on a bare
+# `git push --tags`, which creates the tag but no visible Release entry.
+# github.ref_name still resolves to the release's tag name under this event.
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [published]
 
 jobs:
   build:
