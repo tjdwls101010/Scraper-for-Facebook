@@ -13,6 +13,17 @@ def test_has_truncation_marker_false_without_marker(load_fixture):
     assert truncation.has_truncation_marker(story) is False
 
 
+def test_has_truncation_marker_false_positive_on_universal_line_limit_marker(load_fixture):
+    # Confirmed via live capture: message_truncation_line_limit is present on
+    # EVERY text post regardless of actual length/completeness — it must not
+    # trigger a (needless, account-risk-raising) permalink refetch, even
+    # though its own name matches the general "truncat" substring.
+    body = load_fixture("comment_preview_and_universal_marker.ndjson")
+    parsed = parse.parse_story_nodes([body])
+    story = parsed.stories["fb_007"]
+    assert truncation.has_truncation_marker(story) is False
+
+
 def test_has_truncation_marker_ignores_shared_posts_own_markers():
     # A truncation marker living only inside attached_story must not make the
     # WRAPPER look truncated — has_truncation_marker(wrapper) should reflect

@@ -5,17 +5,24 @@ story-shaped nodes found anywhere in the tree -> deep-merged by ``feedback.id``
 -> top-level vs. shared/quoted (``attached_story``) split.
 
 Design choice, deliberately not literally "anchor on data.node" (plan §8's
-literal wording): Facebook's ``@defer`` follow-up chunks are not guaranteed to
-repeat a ``data.node`` envelope (they may patch fields in under a ``path``
-array instead) — a wrapper-shape assumption is one of the more likely things
-to rot first (plan §12). Anchoring purely on the STRUCTURAL nesting of
-``feedback.id``-bearing nodes (a story is "top-level" unless it is reachable
-only through some other story's ``attached_story``) achieves the same
-correctness goal — no double-counting a shared/quoted post — without
-depending on an envelope shape at all. This still needs validation against a
-real capture (see the live-probe task); until then the exact field lookups
-below (creation_time, message text, media, links) are best-effort per the
-plan's "starting hint, not a contract" field map.
+literal wording): Facebook's ``@defer``/``@stream`` follow-up chunks are not
+guaranteed to repeat a ``data.node`` envelope — confirmed via live capture,
+they patch fields in via a ``path`` array instead (e.g.
+``path: ["node", "timeline_list_feed_units", "edges", 1]``), addressed by
+array index, not by repeating ``feedback.id``. Anchoring purely on the
+STRUCTURAL nesting of ``feedback.id``-bearing nodes (a story is "top-level"
+unless it is reachable only through some other story's ``attached_story``)
+achieves the same correctness goal — no double-counting a shared/quoted post
+— without depending on an envelope shape at all.
+
+Confirmed via live capture: ``creation_time``, ``permalink_url``/``wwwURL``,
+and ``message.text`` are exactly where §8's field map hinted. Also confirmed,
+and NOT anticipated by that field map: a post's inline "top comment" preview
+is its own feedback-shaped object (nested under
+``interesting_top_level_comments``, reached without ever passing through
+``attached_story``) that must be excluded the same way a share is, or it's
+miscounted as an independent top-level post. Media/link extraction paths are
+still unconfirmed — the probed profile had no media or link attachments.
 """
 
 from __future__ import annotations
@@ -121,13 +128,22 @@ def _is_story_shaped(obj: Any) -> bool:
     )
 
 
-# KNOWN LIMITATION (pending live-probe validation): a @defer patch chunk that
-# updates a nested field (e.g. reaction_count) WITHOUT repeating feedback.id
-# is invisible to _walk — it's simply never recognized as story-shaped, so
-# its data is silently dropped rather than merged. This mirrors the plan's
-# stated merge key (feedback.id) rather than inventing an unverified fallback
-# (e.g. reading a GraphQL `path` array) without real capture data to design
-# it against.
+# KNOWN LIMITATION (pending further live-probe validation): a @defer patch
+# chunk that updates a nested field (e.g. reaction_count) WITHOUT repeating
+# feedback.id is invisible to _walk — it's simply never recognized as
+# story-shaped, so its data is silently dropped rather than merged. This
+# mirrors the plan's stated merge key (feedback.id) rather than inventing an
+# unverified fallback (e.g. reading a GraphQL `path` array) without real
+# capture data to design it against.
+
+#: Confirmed via live capture (2026-07): a post's inline "top comment"
+#: preview is a SEPARATE feedback-shaped object nested under this key
+#: (path seen: comet_sections.feedback.story.story_ufi_container.story.
+#: feedback_context.interesting_top_level_comments[].comment) — reached
+#: without ever passing through attached_story, so it would otherwise be
+#: misidentified as an independent top-level post. It is a comment, not a
+#: post or a share: skipped entirely, never merged, never top-level.
+_NON_POST_CONTAINER_KEYS = frozenset({"interesting_top_level_comments"})
 
 
 def _walk(
@@ -153,13 +169,10 @@ def _walk(
             if isinstance(attached, dict):
                 _walk(attached, stories, top_level_seen, is_nested_share=True)
 
-            for key, value in obj.items():
-                if key == "attached_story":
-                    continue
-                _walk(value, stories, top_level_seen, is_nested_share=is_nested_share)
-        else:
-            for value in obj.values():
-                _walk(value, stories, top_level_seen, is_nested_share=is_nested_share)
+        for key, value in obj.items():
+            if key == "attached_story" or key in _NON_POST_CONTAINER_KEYS:
+                continue
+            _walk(value, stories, top_level_seen, is_nested_share=is_nested_share)
     elif isinstance(obj, list):
         for item in obj:
             _walk(item, stories, top_level_seen, is_nested_share=is_nested_share)
@@ -207,7 +220,7 @@ def iter_story_dicts(obj: Any, *, exclude_keys: frozenset[str] = frozenset()) ->
             yield from iter_story_dicts(item, exclude_keys=exclude_keys)
 
 
-SHARE_EXCLUDE = frozenset({"attached_story"})
+SHARE_EXCLUDE = frozenset({"attached_story", *_NON_POST_CONTAINER_KEYS})
 
 
 def find_creation_time(story: dict) -> int | None:
@@ -217,13 +230,21 @@ def find_creation_time(story: dict) -> int | None:
     precisely because "any int in the tree" grabs the wrong value (an edit
     time, a nested attachment's timestamp, a cache-busting int). Restricting
     to a direct key on the merged story dict is the exact-path discipline
-    plan §8 asks for; live-probe validation may still relocate this.
+    plan §8 asks for. Confirmed via live capture: this is exactly where it
+    lives on a real post.
     """
     value = story.get("creation_time")
     return value if isinstance(value, int) else None
 
 
 def find_permalink(story: dict) -> str | None:
+    """The story's permalink. Confirmed via live capture: ``permalink_url`` is
+    a direct root key (as reliable a lookup as ``creation_time``); ``wwwURL``
+    is the same URL repeated deeper in ``comet_sections``, kept as a fallback.
+    """
+    value = story.get("permalink_url")
+    if isinstance(value, str):
+        return value
     value = story.get("wwwURL")
     if isinstance(value, str):
         return value

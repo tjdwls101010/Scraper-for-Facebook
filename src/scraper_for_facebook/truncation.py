@@ -16,11 +16,23 @@ from .parse import SHARE_EXCLUDE, iter_story_dicts, parse_story_nodes
 
 _TRUNCATION_KEY_MARKERS = ("truncat", "preferred_body", "see_more")
 
+#: Confirmed via live capture (2026-07): message_truncation_line_limit is a
+#: universal client-rendering config present on EVERY text post regardless of
+#: length or completeness (14/14 real posts had it, including a 62-character
+#: post far under any line limit) — it is NOT a truncation signal. All 14
+#: posts' message.text also ended in proper sentence-final punctuation,
+#: confirming the delivered text was already complete in every case.
+#: Denylisted specifically, rather than dropping "truncat" outright, since a
+#: different, not-yet-observed truncat*-shaped key could still be a real one.
+_KNOWN_FALSE_POSITIVE_KEYS = frozenset({"message_truncation_line_limit"})
+
 
 def has_truncation_marker(story: dict) -> bool:
     """True if any key name under the story's own content (not a shared post) looks truncation-related."""  # noqa: E501
     for node in iter_story_dicts(story, exclude_keys=SHARE_EXCLUDE):
         for key, value in node.items():
+            if key in _KNOWN_FALSE_POSITIVE_KEYS:
+                continue
             key_lower = key.lower()
             if value and any(marker in key_lower for marker in _TRUNCATION_KEY_MARKERS):
                 return True

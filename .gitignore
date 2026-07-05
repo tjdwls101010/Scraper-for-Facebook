@@ -26,6 +26,7 @@ profiles/
 # these known-synthetic ones — defeating the whole point of the blanket
 # ignore above. Adding a new fixture means adding its name here too.
 !tests/fixtures/basic_status_post.ndjson
+!tests/fixtures/comment_preview_and_universal_marker.ndjson
 !tests/fixtures/media_and_links.ndjson
 !tests/fixtures/pinned_decoy_and_missing_date.ndjson
 !tests/fixtures/shared_post.ndjson

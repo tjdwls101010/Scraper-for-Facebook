@@ -84,16 +84,45 @@ def _looks_unavailable(html: str) -> bool:
     return any(marker in html_lower for marker in _UNAVAILABLE_MARKERS)
 
 
-def _looks_like_end_of_feed(bodies: list[bytes]) -> bool:
-    """Best-effort: an explicit ``has_next_page: false``-shaped marker, if present.
+#: Confirmed via live capture: the timeline feed's own pagination lives at
+#: node.timeline_list_feed_units.page_info.has_next_page (seen in the
+#: @stream/@defer chunk labels' own `path` addressing). A bare, unscoped
+#: search for ANY has_next_page:false false-triggered "feed exhausted" after
+#: the very first batch in a real run — a profile sidebar widget (a photo
+#: tiles section) has its OWN, unrelated has_next_page:false on the same
+#: page, and the unscoped search couldn't tell the two apart.
+_FEED_CONNECTION_KEY = "timeline_list_feed_units"
 
-    Pending live-probe validation — until confirmed, "no new posts for N
-    batches" is reported as the more honest ``feed_stalled`` (we can't yet
-    tell "truly out of history" from "Facebook paused pagination").
+
+def _find_key(obj, target_key: str):
+    """First value found at ``target_key``, DFS anywhere in ``obj``."""
+    if isinstance(obj, dict):
+        if target_key in obj:
+            return obj[target_key]
+        for value in obj.values():
+            result = _find_key(value, target_key)
+            if result is not None:
+                return result
+    elif isinstance(obj, list):
+        for item in obj:
+            result = _find_key(item, target_key)
+            if result is not None:
+                return result
+    return None
+
+
+def _looks_like_end_of_feed(bodies: list[bytes]) -> bool:
+    """True once the timeline feed connection itself reports no next page.
+
+    Scoped specifically to ``timeline_list_feed_units`` rather than a bare
+    ``has_next_page`` search (see module-level comment) — an unscoped search
+    is not merely imprecise here, it is actively wrong on real captures.
     """
     for obj in parse.iter_json_objects(bodies):
-        for node in parse.iter_story_dicts(obj):
-            if node.get("has_next_page") is False:
+        connection = _find_key(obj, _FEED_CONNECTION_KEY)
+        if isinstance(connection, dict):
+            page_info = connection.get("page_info")
+            if isinstance(page_info, dict) and page_info.get("has_next_page") is False:
                 return True
     return False
 

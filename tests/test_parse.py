@@ -143,7 +143,26 @@ def test_json_roundtrip_sanity_for_all_fixtures(load_fixture):
         "pinned_decoy_and_missing_date.ndjson",
         "truncated_post.ndjson",
         "media_and_links.ndjson",
+        "comment_preview_and_universal_marker.ndjson",
     ]:
         body = load_fixture(name)
         for line in body.decode("utf-8").splitlines():
             json.loads(line)  # every fixture line must be valid JSON on its own
+
+
+def test_comment_preview_is_not_a_top_level_post(load_fixture):
+    # Confirmed via live capture: a post's inline "top comment" preview is a
+    # separate feedback-shaped object nested under interesting_top_level_
+    # comments, reached WITHOUT ever passing through attached_story — it must
+    # not be misidentified as an independent top-level post or a share.
+    body = load_fixture("comment_preview_and_universal_marker.ndjson")
+    parsed = parse.parse_story_nodes([body])
+    assert parsed.top_level_ids() == ["fb_007"]
+    assert "fb_007_9988776655" not in parsed.stories
+
+
+def test_permalink_url_root_key_is_preferred(load_fixture):
+    body = load_fixture("comment_preview_and_universal_marker.ndjson")
+    parsed = parse.parse_story_nodes([body])
+    story = parsed.stories["fb_007"]
+    assert parse.find_permalink(story) == "https://www.facebook.com/synthetic.profile/posts/8"

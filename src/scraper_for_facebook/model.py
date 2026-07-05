@@ -96,9 +96,15 @@ class Post:
 
 # --- normalization: raw merged story dict -> Post ------------------------------
 #
-# Field lookups here beyond id/text/permalink/creation_time are best-effort
-# (pinned/edited/type/counts markers are pending the live-probe validation
-# task) — the same "starting hint, not a contract" caveat as parse.py.
+# Confirmed via live capture: reaction_count/share_count (feedback.reaction_
+# count.count, feedback.share_count.count) and comment_count (feedback.
+# comment_rendering_instance.comments.total_count — NOT a "comment_count"
+# key, which doesn't exist on a real story).
+#
+# Still best-effort, unconfirmed against real data (the live-probe profile
+# had no pinned/edited/reel/life-event posts, and no media or link
+# attachments, to exercise these against): is_pinned, edited_at, reel/
+# life_event classification, media/link extraction paths.
 
 
 def _find_pinned(story: dict) -> bool:
@@ -128,6 +134,25 @@ def _find_count(story: dict, key: str, subkey: str) -> int | None:
         inner = value.get(subkey)
         return inner if isinstance(inner, int) else None
     return value if isinstance(value, int) else None
+
+
+def _find_comment_count(story: dict) -> int | None:
+    """Confirmed via live capture: comment count lives at
+    ``feedback.comment_rendering_instance.comments.total_count`` — NOT a
+    ``comment_count`` key (that name doesn't exist on a real story; only
+    ``reaction_count``/``share_count`` matched their originally-guessed shape).
+    """
+    feedback = story.get("feedback")
+    if not isinstance(feedback, dict):
+        return None
+    instance = feedback.get("comment_rendering_instance")
+    if not isinstance(instance, dict):
+        return None
+    comments = instance.get("comments")
+    if not isinstance(comments, dict):
+        return None
+    total = comments.get("total_count")
+    return total if isinstance(total, int) else None
 
 
 def _classify_type(story: dict, media: list[dict], links: list[dict], has_shared: bool) -> str:
@@ -204,7 +229,7 @@ def build_post(story: dict, *, captured_at: datetime, include_raw: bool = False)
             for link in raw_links
         ],
         reaction_count=_find_count(story, "reaction_count", "count"),
-        comment_count=_find_count(story, "comment_count", "total_count"),
+        comment_count=_find_comment_count(story),
         share_count=_find_count(story, "share_count", "count"),
         shared_post=shared_post,
         captured_at=captured_at,
