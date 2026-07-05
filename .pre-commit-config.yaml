@@ -1,0 +1,16 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.6
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: fixture-pii-scan
+        name: scan committed fixtures for PII/secrets
+        entry: python3 scripts/check_fixtures_pii.py
+        language: system
+        files: ^tests/fixtures/.*\.ndjson$
+        pass_filenames: false

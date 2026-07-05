@@ -1,0 +1,46 @@
+# Pinned dev/CI dependency snapshot for reproducible CI runs (plan §14).
+# NOT the published package's dependency spec — that lives in pyproject.toml.
+# Regenerate with: uv pip freeze --python .venv/bin/python | grep -v '^scraper'
+anyio==4.14.1
+apify-fingerprint-datapoints==0.13.0
+browserforge==1.2.4
+build==1.5.0
+certifi==2026.6.17
+cffi==2.0.0
+cfgv==3.5.0
+click==8.4.2
+cssselect==1.4.0
+curl-cffi==0.15.0
+distlib==0.4.3
+filelock==3.29.5
+greenlet==3.5.3
+identify==2.6.19
+idna==3.18
+iniconfig==2.3.0
+lxml==6.1.1
+markdown-it-py==4.2.0
+mdurl==0.1.2
+msgspec==0.21.1
+nodeenv==1.10.0
+orjson==3.11.9
+packaging==26.2
+patchright==1.61.1
+platformdirs==4.10.0
+playwright==1.61.0
+pluggy==1.6.0
+pre-commit==4.6.0
+protego==0.6.2
+pycparser==3.0
+pyee==13.0.1
+pygments==2.20.0
+pyproject-hooks==1.2.0
+pytest==9.1.1
+python-discovery==1.4.3
+pyyaml==6.0.3
+rich==15.0.0
+ruff==0.15.20
+scrapling==0.4.10
+tld==0.13.2
+typing-extensions==4.16.0
+virtualenv==21.5.1
+w3lib==2.4.1

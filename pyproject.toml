@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "scraper-for-facebook"
+version = "0.1.0"
+description = "Scrape your own logged-in Facebook timeline by observing the GraphQL responses your own browser session makes. No token replay, no credential injection."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "tjdwls101010" }]
+keywords = ["facebook", "scraper", "scraping", "graphql", "scrapling"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "scrapling[fetchers]>=0.4.9,<0.5",
+    "platformdirs>=4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.8",
+    "pre-commit>=3.8",
+    "build>=1.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/tjdwls101010/Scraper-for-Facebook"
+Issues = "https://github.com/tjdwls101010/Scraper-for-Facebook/issues"
+Changelog = "https://github.com/tjdwls101010/Scraper-for-Facebook/blob/main/CHANGELOG.md"
+
+[project.scripts]
+scrape-fb = "scraper_for_facebook.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scraper_for_facebook"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

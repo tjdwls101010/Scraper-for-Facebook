@@ -1,0 +1,157 @@
+"""Public Python API (plan §5). See README.md for the full picture."""
+
+from __future__ import annotations
+
+__version__ = "0.1.0"
+
+from collections.abc import Iterator
+from datetime import date
+from pathlib import Path
+
+from . import profiles
+from . import retrieve as retrieve_module
+from . import session as session_module
+from .config import DEFAULT_MAX_SCROLLS, DEFAULT_PROFILE_NAME, DEFAULT_SCROLL_PAUSE
+from .errors import (
+    ChallengeError,
+    InvalidIdentifierError,
+    LoginRequiredError,
+    ProfileUnavailableError,
+    ScraperForFacebookError,
+    SessionClosedError,
+    SessionExpiredError,
+)
+from .model import LinkAttachment, Media, Post
+from .retrieve import RetrieveResult
+from .session import Status
+
+__all__ = [
+    "FacebookScraper",
+    "Post",
+    "Media",
+    "LinkAttachment",
+    "Status",
+    "RetrieveResult",
+    "ScraperForFacebookError",
+    "LoginRequiredError",
+    "SessionExpiredError",
+    "ChallengeError",
+    "ProfileUnavailableError",
+    "SessionClosedError",
+    "InvalidIdentifierError",
+]
+
+
+def _parse_date(value: str | date | None) -> date | None:
+    if value is None or isinstance(value, date):
+        return value
+    return date.fromisoformat(value)  # strict YYYY-MM-DD; raises ValueError otherwise
+
+
+class _HybridLogin:
+    """Makes ``login`` an instance method on an instance and a classmethod-shaped
+    shim on the class itself, both with the identical keyword surface.
+
+    Plain ``def``/``@classmethod`` can't do this under one name — the second
+    definition would just shadow the first in the class namespace. This
+    closes the gap the plan calls out explicitly (§5): a classmethod-only
+    shim can't forward a caller's custom ``profile_dir`` into the same
+    session it then logs into, so a library user with a non-default
+    ``profile_dir`` would log into one place and fetch from another.
+    """
+
+    def __get__(self, obj, objtype=None):
+        if obj is not None:
+            return obj._login_instance
+
+        def classmethod_shim(
+            profile: str = DEFAULT_PROFILE_NAME,
+            *,
+            profile_dir: str | Path | None = None,
+        ) -> bool:
+            return objtype(profile=profile, profile_dir=profile_dir)._login_instance()
+
+        return classmethod_shim
+
+
+class FacebookScraper:
+    """Scrape your own logged-in Facebook timeline. See DISCLAIMER.md first."""
+
+    def __init__(
+        self,
+        profile: str = DEFAULT_PROFILE_NAME,
+        *,
+        headless: bool = True,
+        profile_dir: str | Path | None = None,
+        scroll_pause: tuple[float, float] = DEFAULT_SCROLL_PAUSE,
+        max_scrolls: int = DEFAULT_MAX_SCROLLS,
+    ) -> None:
+        self.profile = profile
+        self.headless = headless
+        self.scroll_pause = scroll_pause
+        self.max_scrolls = max_scrolls
+        self.last_result: RetrieveResult | None = None
+        self._profile_dir = profiles.resolve_profile_dir(profile, profile_dir)
+        self._closed = False
+
+    def __enter__(self) -> FacebookScraper:
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self._closed = True
+
+    def _login_instance(self) -> bool:
+        return session_module.run_login(self._profile_dir)
+
+    login = _HybridLogin()
+
+    def status(self) -> Status:
+        return session_module.run_status(self._profile_dir)
+
+    def fetch_profile(
+        self,
+        url: str,
+        *,
+        limit: int | None = None,
+        since: str | date | None = None,
+        until: str | date | None = None,
+        raw: bool = False,
+    ) -> list[Post]:
+        if self._closed:
+            raise SessionClosedError("FacebookScraper is closed; use it inside a `with` block")
+        normalized_url = profiles.normalize_target_identifier(url)
+        result = retrieve_module.fetch_profile(
+            normalized_url,
+            profile_dir=self._profile_dir,
+            headless=self.headless,
+            limit=limit,
+            since=_parse_date(since),
+            until=_parse_date(until),
+            scroll_pause=self.scroll_pause,
+            max_scrolls=self.max_scrolls,
+            raw=raw,
+        )
+        self.last_result = result
+        return result.posts
+
+    def iter_profile(
+        self,
+        url: str,
+        *,
+        limit: int | None = None,
+        since: str | date | None = None,
+        until: str | date | None = None,
+        raw: bool = False,
+    ) -> Iterator[Post]:
+        """Generator form. Must be consumed inside the owning ``with`` block —
+        advancing it afterward raises :class:`SessionClosedError` rather than
+        touching an already-closed session.
+        """
+        if self._closed:
+            raise SessionClosedError("iter_profile() was called after its `with` block exited")
+        for post in self.fetch_profile(url, limit=limit, since=since, until=until, raw=raw):
+            if self._closed:
+                raise SessionClosedError(
+                    "iter_profile() was advanced after its `with` block exited"
+                )
+            yield post

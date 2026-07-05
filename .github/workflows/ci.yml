@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    # macOS is the first-class, tested target (v1); the ubuntu leg exists
+    # because the fixture/parse/CLI layer is browser-agnostic, and running it
+    # on Linux too is a cheap way to make that cross-platform claim real
+    # (plan §14). Neither leg installs an actual browser binary.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package + dev dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+      - name: Fixture PII/secret scan
+        run: python scripts/check_fixtures_pii.py
+
+      - name: Run tests
+        run: pytest
+
+  build-and-smoke:
+    # A wheel-install smoke test, WITH scrapling (a real dependency) but
+    # WITHOUT a browser binary — that's a separate, explicit `scrape-fb setup`
+    # step this job never runs. This catches a wrong entry-point path, a
+    # missing runtime dep, or an import that only fails once scrapling is
+    # actually present (plan §13) — none of which the fixture tests touch.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tool
+        run: python -m pip install build
+
+      - name: Build wheel
+        run: python -m build --wheel
+
+      - name: Install built wheel into a clean venv
+        run: |
+          python -m venv smoke-venv
+          smoke-venv/bin/pip install dist/*.whl
+
+      - name: Smoke test the entry point
+        run: |
+          smoke-venv/bin/scrape-fb --version
+          smoke-venv/bin/scrape-fb --help

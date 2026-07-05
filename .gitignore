@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Dev environment
+.venv/
+.ruff_cache/
+.pytest_cache/
+
+# Raw captures and runtime outputs are a PII trap — ignore by an unambiguous,
+# distinct name/location so a safe fixture and an unsafe raw capture can never
+# collide under one glob (see plan §4).
+scratch/
+*.raw.ndjson
+profiles/
+*.json
+*.ndjson
+
+# Un-ignore the committed, synthetic-by-construction fixtures.
+!tests/fixtures/*.ndjson
+
+.DS_Store

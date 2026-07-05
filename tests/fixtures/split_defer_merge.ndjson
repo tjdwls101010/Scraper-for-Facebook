@@ -1,0 +1,2 @@
+{"data": {"node": {"feedback": {"id": "fb_002"}, "creation_time": 1750000100, "wwwURL": "https://www.facebook.com/synthetic.profile/posts/2", "comet_sections": {"message": {"story": {"message": {"text": "Post whose fields are split across two synthetic defer-style chunks."}}}}}}}
+{"data": {"node": {"feedback": {"id": "fb_002", "reaction_count": {"count": 42}, "comment_count": {"total_count": 5}, "share_count": {"count": 2}}, "attachments": [{"media": {"image": {"uri": "https://media.example.test/fake/photo1.jpg", "width": 720, "height": 480}}}]}}}
