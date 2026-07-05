@@ -62,7 +62,7 @@ def test_build_post_media_and_link_types(load_fixture):
     post = build_post(parsed.stories["fb_006"], captured_at=CAPTURED_AT)
     assert len(post.media) == 2
     assert len(post.links) == 1
-    assert post.type in ("video", "photo")  # video attachment present; classifier picks video first
+    assert post.type == "video"  # pins the documented video-over-photo precedence
 
 
 def test_post_to_dict_serializes_datetimes_as_iso_utc_z():

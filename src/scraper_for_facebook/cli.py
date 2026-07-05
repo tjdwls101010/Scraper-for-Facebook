@@ -9,7 +9,7 @@ import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from . import __version__, profiles, redact, retrieve, session
+from . import __version__, profiles, redact, retrieve, scroll, session
 from .config import (
     DEFAULT_MAX_SCROLLS,
     DEFAULT_PROFILE_NAME,
@@ -46,8 +46,21 @@ def _parse_iso_date(value: str) -> date:
         raise argparse.ArgumentTypeError(f"expected YYYY-MM-DD, got {value!r}") from None
 
 
+class _ArgumentParser(argparse.ArgumentParser):
+    """Usage errors (bad flags, missing args) exit 1, not argparse's default 2.
+
+    Exit code 2 already means "login required or session expired" in this
+    CLI's contract — a caller scripting against exit codes couldn't otherwise
+    tell a typo'd `--since` from an expired session.
+    """
+
+    def error(self, message: str) -> None:
+        self.print_usage(sys.stderr)
+        self.exit(1, f"{self.prog}: error: {message}\n")
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _ArgumentParser(
         prog="scrape-fb", description="Scrape your own logged-in Facebook timeline."
     )
     parser.add_argument("--version", action="version", version=f"scrape-fb {__version__}")
@@ -102,7 +115,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _cmd_login(args: argparse.Namespace) -> int:
     profile_dir = profiles.resolve_profile_dir(args.profile, args.profile_dir)
-    if session.run_login(profile_dir):
+    try:
+        logged_in = session.run_login(profile_dir)
+    except Exception as exc:
+        print(redact.redact_raw_text(f"login failed: {exc}"), file=sys.stderr)
+        return 1
+    if logged_in:
         print(f"Logged in. Profile saved at {profile_dir}", file=sys.stderr)
         return 0
     print(
@@ -117,7 +135,11 @@ _STATUS_EXIT_CODES = {Status.LOGGED_IN: 0, Status.EXPIRED: 2, Status.CHECKPOINT:
 
 def _cmd_status(args: argparse.Namespace) -> int:
     profile_dir = profiles.resolve_profile_dir(args.profile, args.profile_dir)
-    status = session.run_status(profile_dir)
+    try:
+        status = session.run_status(profile_dir)
+    except Exception as exc:
+        print(redact.redact_raw_text(f"status check failed: {exc}"), file=sys.stderr)
+        return 1
     age = session.session_age_seconds(profile_dir)
     if args.json:
         print(json.dumps({"status": status.value, "session_age_seconds": age}))
@@ -144,8 +166,23 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def _redact_raw_recursive(post: Post) -> None:
+    """Scrub ``post.raw`` AND every nested ``shared_post.raw`` down the chain.
+
+    ``Post.to_dict()`` serializes ``shared_post`` recursively, so a shared/
+    quoted post's own raw node reaches the output file just as directly as
+    the top-level post's — redacting only the top-level one leaves it
+    completely unscrubbed.
+    """
+    node: Post | None = post
+    while node is not None:
+        if node.raw is not None:
+            node.raw = redact.redact(node.raw)
+        node = node.shared_post
+
+
 def _default_output_path(identifier: str, fmt: str) -> Path:
-    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f") + "Z"
     safe_identifier = re.sub(r"[^A-Za-z0-9]+", "-", identifier).strip("-") or "profile"
     ext = "ndjson" if fmt == "ndjson" else "json"
     return default_output_dir() / f"{safe_identifier}-{timestamp}.{ext}"
@@ -205,9 +242,15 @@ def _cmd_fetch(args: argparse.Namespace) -> int:
 
     if not result.posts:
         print(
-            f"0 posts retrieved (stop reason: {result.stop_reason}). If this profile is "
-            "known-good, this may indicate a Facebook response-shape change — see "
-            "https://github.com/tjdwls101010/Scraper-for-Facebook/issues",
+            f"0 posts retrieved (stop reason: {result.stop_reason})."
+            + (
+                " An unexpected error interrupted scrolling before any post was captured "
+                "(rerun with -v for details)."
+                if result.stop_reason == scroll.STOP_UNKNOWN_ERROR
+                else " If this profile is known-good, this may indicate a Facebook "
+                "response-shape change — see "
+                "https://github.com/tjdwls101010/Scraper-for-Facebook/issues"
+            ),
             file=sys.stderr,
         )
         return 4
@@ -221,18 +264,23 @@ def _cmd_fetch(args: argparse.Namespace) -> int:
             )
         else:
             for post in result.posts:
-                if post.raw is not None:
-                    post.raw = redact.redact(post.raw)
+                _redact_raw_recursive(post)
 
     output_path = (
         Path(args.output) if args.output else _default_output_path(args.identifier, args.format)
     )
     _write_output(result.posts, output_path, args.format)
 
-    exit_code = 7 if (args.since is not None and not result.since_reached) else 0
+    # Per the exit-code contract: hitting `--limit` is a full success in its
+    # own right (limit/since compose, first trigger wins) even if `since`
+    # was never independently confirmed crossed — exit 7 is reserved for
+    # "we genuinely don't know whether we reached `since`" (stopped on
+    # budget/stall), not for "we stopped early because we got enough posts".
+    since_inconclusive = result.stop_reason in (scroll.STOP_MAX_SCROLLS, scroll.STOP_FEED_STALLED)
+    exit_code = 7 if (args.since is not None and since_inconclusive) else 0
     oldest = result.oldest_seen.date().isoformat() if result.oldest_seen else "unknown"
     newest = result.newest_seen.date().isoformat() if result.newest_seen else "unknown"
-    reached_note = "" if result.since_reached else " (requested --since NOT confirmed reached)"
+    reached_note = " (requested --since NOT confirmed reached)" if exit_code == 7 else ""
     print(
         f"{len(result.posts)} posts, range {oldest}..{newest}, stop reason: "
         f"{result.stop_reason}{reached_note}. Saved to {output_path}",

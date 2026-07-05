@@ -48,7 +48,7 @@ scrape-fb --version
 scrape-fb login   [--profile NAME] [--profile-dir PATH]
 scrape-fb status  [--profile NAME] [--profile-dir PATH] [--json]
 scrape-fb setup
-scrape-fb doctor  [--profile NAME]
+scrape-fb doctor  [--profile NAME] [--profile-dir PATH]
 scrape-fb fetch <profile_url_or_username>
     --profile NAME            persisted login profile (default: "default")
     --limit N                 max posts
@@ -60,7 +60,10 @@ scrape-fb fetch <profile_url_or_username>
     --max-scrolls N           scroll budget (default 40)
     --profile-dir PATH        override where the login profile is stored
     --headed                  show the browser (debugging)
-    --raw                     include the raw captured story node per post (debug; contains PII)
+    --raw                     include the raw captured story node per post (debug; contains PII).
+                              Redacted (scrubbed) by default — combine with --no-redact for the
+                              truly raw, unscrubbed node (prints an on-screen PII warning).
+    --no-redact               disable redaction of --raw output (only has an effect with --raw)
     -v / --verbose            extra diagnostics (redaction-scrubbed by default)
 ```
 

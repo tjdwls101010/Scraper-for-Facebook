@@ -43,3 +43,16 @@ def test_resolve_truncated_text_uses_injected_fetcher(load_fixture):
 def test_resolve_truncated_text_returns_none_when_fetcher_yields_nothing():
     text = truncation.resolve_truncated_text("https://www.facebook.com/x", lambda url: [])
     assert text is None
+
+
+def test_resolve_truncated_text_never_returns_a_nested_shared_posts_text():
+    # The permalink's own top-level story has no message of its own (a bare
+    # reshare with no added caption) — the nested shared post's text must
+    # NOT be attributed to it.
+    body = (
+        b'{"feedback": {"id": "wrapper"}, "attached_story": '
+        b'{"feedback": {"id": "shared"}, "message": {"text": "the shared posts own text"}}}'
+    )
+
+    text = truncation.resolve_truncated_text("https://www.facebook.com/x", lambda url: [body])
+    assert text is None

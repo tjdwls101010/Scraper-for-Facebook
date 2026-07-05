@@ -42,7 +42,13 @@ def resolve_truncated_text(
     if not bodies:
         return None
     parsed = parse_story_nodes(bodies)
-    for story in parsed.stories.values():
+    # Only the TOP-LEVEL story at this permalink — parsed.stories also
+    # includes any shared/quoted post nested under it, and if the top-level
+    # story has no message of its own (a bare reshare with no added caption),
+    # falling through to search every story indiscriminately would return
+    # the shared post's own text and misattribute it to the wrong post.
+    for story_id in parsed.top_level_ids():
+        story = parsed.stories[story_id]
         for node in iter_story_dicts(story, exclude_keys=SHARE_EXCLUDE):
             message = node.get("message")
             if isinstance(message, dict):

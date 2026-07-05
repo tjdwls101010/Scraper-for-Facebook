@@ -51,3 +51,24 @@ def test_redact_raw_text_scrubs_urls_in_free_text():
     text = "error fetching https://scontent.xx.fbcdn.net/x.jpg?oh=secret&oe=abc"
     result = redact.redact_raw_text(text)
     assert "secret" not in result
+
+
+def test_redact_raw_text_scrubs_session_cookies_in_header_form():
+    text = "cookie: datr=abcdef123; xs=98765; c_user=1000001"
+    result = redact.redact_raw_text(text)
+    assert "abcdef123" not in result
+    assert "98765" not in result
+    assert "1000001" not in result
+
+
+def test_redact_raw_text_scrubs_tokens_in_querystring_form():
+    text = "https://www.facebook.com/api/graphql/?fb_dtsg=SUPERSECRET&access_token=ALSOSECRET"
+    result = redact.redact_raw_text(text)
+    assert "SUPERSECRET" not in result
+    assert "ALSOSECRET" not in result
+
+
+def test_is_signed_media_url_rejects_lookalike_hosts():
+    assert redact.is_signed_media_url("https://evilfbcdn.net/foo?token=abc") is False
+    assert redact.is_signed_media_url("https://notfbcdn.net/foo?token=abc") is False
+    assert redact.is_signed_media_url("https://xfbcdn.net/foo?token=abc") is False

@@ -1,7 +1,7 @@
 import pytest
 
 from scraper_for_facebook.errors import InvalidIdentifierError
-from scraper_for_facebook.profiles import normalize_target_identifier
+from scraper_for_facebook.profiles import normalize_target_identifier, validate_permalink_url
 
 
 @pytest.mark.parametrize(
@@ -47,3 +47,23 @@ def test_valid_identifiers_normalize(raw, expected):
 def test_invalid_identifiers_are_rejected(raw):
     with pytest.raises(InvalidIdentifierError):
         normalize_target_identifier(raw)
+
+
+def test_validate_permalink_url_preserves_full_path_unlike_normalize():
+    # normalize_target_identifier would truncate this down to just the
+    # profile URL, losing the post reference entirely — permalink
+    # validation must preserve the full path.
+    permalink = "https://www.facebook.com/100000000000001/posts/999888777"
+    assert validate_permalink_url(permalink) == permalink
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://www.facebook.com/some/permalink",  # not https
+        "https://evil.example.com/some/permalink",  # wrong host
+    ],
+)
+def test_validate_permalink_url_rejects_bad_scheme_or_host(url):
+    with pytest.raises(InvalidIdentifierError):
+        validate_permalink_url(url)

@@ -47,12 +47,42 @@ def test_deep_merge_unions_id_keyed_lists():
     assert by_id["2"] == {"id": "2", "z": 3}
 
 
+def test_deep_merge_unions_non_id_keyed_lists_by_content():
+    # "attachments" carries no id key. Picking one list wholesale (the old
+    # "longer wins" rule) drops a genuinely new item whenever the earlier
+    # chunk's list isn't shorter.
+    a = {"attachments": [{"media": {"image": {"uri": "https://example.test/a.jpg"}}}]}
+    b = {"attachments": [{"media": {"image": {"uri": "https://example.test/b.jpg"}}}]}
+    merged = parse.deep_merge(a, b)
+    uris = {item["media"]["image"]["uri"] for item in merged["attachments"]}
+    assert uris == {"https://example.test/a.jpg", "https://example.test/b.jpg"}
+
+
 def test_shared_post_is_not_double_counted_as_top_level(load_fixture):
     body = load_fixture("shared_post.ndjson")
     parsed = parse.parse_story_nodes([body])
     assert set(parsed.stories.keys()) == {"fb_003_wrapper", "fb_003_shared_original"}
     assert parsed.top_level_ids() == ["fb_003_wrapper"]
-    assert "fb_003_shared_original" in parsed.child_ids
+    assert "fb_003_shared_original" not in parsed.top_level_seen
+
+
+def test_shared_post_also_appearing_standalone_is_not_dropped():
+    # A friend reshares a post that ALSO shows up in your feed independently
+    # (e.g. you follow the original author too) — both must be top-level.
+    standalone = {"feedback": {"id": "B"}, "creation_time": 1}
+    wrapper = {
+        "feedback": {"id": "A"},
+        "creation_time": 2,
+        "attached_story": {"feedback": {"id": "B"}, "creation_time": 1},
+    }
+    body = ("\n".join(json.dumps(o) for o in [standalone, wrapper])).encode("utf-8")
+    parsed = parse.parse_story_nodes([body])
+    assert set(parsed.top_level_ids()) == {"A", "B"}
+
+    # Order-independent: same result if the share appears before the standalone post.
+    body_reversed = ("\n".join(json.dumps(o) for o in [wrapper, standalone])).encode("utf-8")
+    parsed_reversed = parse.parse_story_nodes([body_reversed])
+    assert set(parsed_reversed.top_level_ids()) == {"A", "B"}
 
 
 def test_creation_time_uses_exact_story_root_key_not_a_decoy_int(load_fixture):

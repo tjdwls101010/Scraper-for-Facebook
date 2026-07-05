@@ -49,15 +49,24 @@ def _parse_date(value: str | date | None) -> date | None:
 
 
 class _HybridLogin:
-    """Makes ``login`` an instance method on an instance and a classmethod-shaped
-    shim on the class itself, both with the identical keyword surface.
+    """Makes ``login`` behave differently on the class vs. an instance:
 
-    Plain ``def``/``@classmethod`` can't do this under one name — the second
-    definition would just shadow the first in the class namespace. This
-    closes the gap the plan calls out explicitly (§5): a classmethod-only
-    shim can't forward a caller's custom ``profile_dir`` into the same
-    session it then logs into, so a library user with a non-default
-    ``profile_dir`` would log into one place and fetch from another.
+    - ``FacebookScraper.login(profile=..., profile_dir=...)`` (class access)
+      CONSTRUCTS a new instance with those keywords, then logs it in — so it
+      needs them.
+    - ``FacebookScraper(profile=...).login()`` (instance access) takes NO
+      keywords — ``profile``/``profile_dir`` are already fixed by the
+      instance you're calling it on; passing them again would be ambiguous
+      (log into the instance's own profile, or silently reconstruct a
+      different one?), so it's a plain ``TypeError`` instead of guessing.
+
+    Plain ``def``/``@classmethod`` can't express this one name having two
+    different call shapes — the second definition would just shadow the
+    first in the class namespace. This closes the gap the plan calls out
+    explicitly (§5): a classmethod-only shim can't forward a caller's custom
+    ``profile_dir`` into the same session it then logs into, so a library
+    user with a non-default ``profile_dir`` would log into one place and
+    fetch from another.
     """
 
     def __get__(self, obj, objtype=None):
@@ -144,11 +153,19 @@ class FacebookScraper:
         raw: bool = False,
     ) -> Iterator[Post]:
         """Generator form. Must be consumed inside the owning ``with`` block —
-        advancing it afterward raises :class:`SessionClosedError` rather than
-        touching an already-closed session.
+        advancing it (the first ``next()``, e.g. via a ``for`` loop) after the
+        block exited raises :class:`SessionClosedError` rather than touching
+        an already-closed session. Because this is a generator, that check
+        cannot run at call time — calling ``iter_profile()`` itself never
+        raises, even on an already-closed instance; only advancing it does.
+
+        Note this fully scrolls, captures, and parses before yielding the
+        first post — like ``fetch_profile``, just yielded one at a time
+        afterward. Breaking out of the loop early doesn't reduce browser
+        work already done.
         """
         if self._closed:
-            raise SessionClosedError("iter_profile() was called after its `with` block exited")
+            raise SessionClosedError("iter_profile() was advanced after its `with` block exited")
         for post in self.fetch_profile(url, limit=limit, since=since, until=until, raw=raw):
             if self._closed:
                 raise SessionClosedError(

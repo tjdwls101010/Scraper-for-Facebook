@@ -92,7 +92,22 @@ def _merge_lists(a: list, b: list) -> list:
                     by_id[item_id] = item
                     order.append(item_id)
         return [by_id[i] for i in order]
-    return a if len(a) >= len(b) else b
+    # No id key to union by (e.g. an "attachments" list) — picking one list
+    # wholesale (the old "longer wins" rule) silently drops a genuinely new
+    # item the OTHER list has whenever it isn't the longer one. Concatenate
+    # and dedupe by content instead, so a distinct item from either side
+    # always survives.
+    combined: list = []
+    seen_keys: set[str] = set()
+    for item in (*a, *b):
+        try:
+            key = json.dumps(item, sort_keys=True, default=str)
+        except TypeError:
+            key = repr(item)
+        if key not in seen_keys:
+            seen_keys.add(key)
+            combined.append(item)
+    return combined
 
 
 # --- story-node discovery -------------------------------------------------------
@@ -106,42 +121,58 @@ def _is_story_shaped(obj: Any) -> bool:
     )
 
 
+# KNOWN LIMITATION (pending live-probe validation): a @defer patch chunk that
+# updates a nested field (e.g. reaction_count) WITHOUT repeating feedback.id
+# is invisible to _walk — it's simply never recognized as story-shaped, so
+# its data is silently dropped rather than merged. This mirrors the plan's
+# stated merge key (feedback.id) rather than inventing an unverified fallback
+# (e.g. reading a GraphQL `path` array) without real capture data to design
+# it against.
+
+
 def _walk(
-    obj: Any, stories: dict[str, dict], child_ids: set[str], *, is_nested_share: bool
+    obj: Any, stories: dict[str, dict], top_level_seen: set[str], *, is_nested_share: bool
 ) -> None:
     if isinstance(obj, dict):
         if _is_story_shaped(obj):
             story_id = str(obj["feedback"]["id"])
-            if is_nested_share:
-                child_ids.add(story_id)
+            if not is_nested_share:
+                # A story earns top-level status if EVER encountered outside
+                # someone else's attached_story, even if it's ALSO nested
+                # under a share elsewhere in the same capture (a friend can
+                # reshare a post that's also, independently, in your own
+                # feed) — tracking this positively, rather than recording
+                # "seen as a child" and excluding by that, means a later or
+                # earlier top-level sighting can't be permanently discarded.
+                top_level_seen.add(story_id)
             stories[story_id] = (
                 deep_merge(stories[story_id], obj) if story_id in stories else dict(obj)
             )
 
             attached = obj.get("attached_story")
             if isinstance(attached, dict):
-                _walk(attached, stories, child_ids, is_nested_share=True)
+                _walk(attached, stories, top_level_seen, is_nested_share=True)
 
             for key, value in obj.items():
                 if key == "attached_story":
                     continue
-                _walk(value, stories, child_ids, is_nested_share=is_nested_share)
+                _walk(value, stories, top_level_seen, is_nested_share=is_nested_share)
         else:
             for value in obj.values():
-                _walk(value, stories, child_ids, is_nested_share=is_nested_share)
+                _walk(value, stories, top_level_seen, is_nested_share=is_nested_share)
     elif isinstance(obj, list):
         for item in obj:
-            _walk(item, stories, child_ids, is_nested_share=is_nested_share)
+            _walk(item, stories, top_level_seen, is_nested_share=is_nested_share)
 
 
 @dataclass
 class ParsedStories:
     stories: dict[str, dict]  # feedback.id -> deep-merged raw story dict
-    child_ids: set[str]  # ids only ever reached via someone else's attached_story
+    top_level_seen: set[str]  # ids ever encountered outside someone else's attached_story
 
     def top_level_ids(self) -> list[str]:
-        """IDs of stories not reachable only via someone else's ``attached_story``."""
-        return [story_id for story_id in self.stories if story_id not in self.child_ids]
+        """IDs of stories ever seen outside someone else's ``attached_story``."""
+        return [story_id for story_id in self.stories if story_id in self.top_level_seen]
 
 
 def parse_story_nodes(bodies: Iterable[bytes]) -> ParsedStories:
@@ -154,10 +185,10 @@ def parse_story_nodes(bodies: Iterable[bytes]) -> ParsedStories:
     across ``@defer`` chunks is still merged correctly.
     """
     stories: dict[str, dict] = {}
-    child_ids: set[str] = set()
+    top_level_seen: set[str] = set()
     for obj in iter_json_objects(bodies):
-        _walk(obj, stories, child_ids, is_nested_share=False)
-    return ParsedStories(stories=stories, child_ids=child_ids)
+        _walk(obj, stories, top_level_seen, is_nested_share=False)
+    return ParsedStories(stories=stories, top_level_seen=top_level_seen)
 
 
 # --- field extraction (best-effort — see module docstring) ---------------------

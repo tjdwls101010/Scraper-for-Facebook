@@ -10,9 +10,15 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from . import model, parse, scroll, truncation
+from . import model, parse, profiles, scroll, truncation
 from .config import clamp_scroll_pause
-from .errors import ChallengeError, LoginRequiredError, ProfileUnavailableError, SessionExpiredError
+from .errors import (
+    ChallengeError,
+    InvalidIdentifierError,
+    LoginRequiredError,
+    ProfileUnavailableError,
+    SessionExpiredError,
+)
 from .session import build_session
 
 
@@ -27,11 +33,13 @@ class RetrieveResult:
 
 
 def _sort_key(post: model.Post):
-    if post.is_pinned:
-        return (0, 0.0)
+    # Unplaceable dates always sort last, pinned or not — we can't judge them.
     if post.created_at is None:
         return (2, 0.0)
-    return (1, -post.created_at.timestamp())
+    # Pinned and non-pinned each sort newest-first among themselves; pinned
+    # posts as a group still come first (bucket 0 vs 1).
+    bucket = 0 if post.is_pinned else 1
+    return (bucket, -post.created_at.timestamp())
 
 
 def _in_window(post: model.Post, *, since: date | None, until: date | None) -> bool:
@@ -60,13 +68,20 @@ def _apply_window(
 
 
 def _since_reached(since: date | None, stop_reason: str) -> bool:
+    """Whether the `--since` date boundary was itself actually verified.
+
+    Deliberately does NOT treat STOP_LIMIT_REACHED as proof of this — the
+    scroll loop checks `limit` before `since` each batch (scroll.py), so
+    hitting the limit can happen long before ever scrolling anywhere near
+    `since`. The CLI still reports exit 0 for a limit-satisfied run (per the
+    plan's exit-code table: hitting `--limit` is success in its own right,
+    since `--limit`/`--since` "compose, first trigger wins") — but that is a
+    separate, CLI-level judgment call, computed directly from stop_reason
+    (see cli.py), not smuggled into this field's meaning.
+    """
     if since is None:
         return True
-    return stop_reason in (
-        scroll.STOP_SINCE_CROSSED,
-        scroll.STOP_FEED_EXHAUSTED,
-        scroll.STOP_LIMIT_REACHED,
-    )
+    return stop_reason in (scroll.STOP_SINCE_CROSSED, scroll.STOP_FEED_EXHAUSTED)
 
 
 def fetch_profile(
@@ -118,6 +133,15 @@ def fetch_profile(
         filtered = _apply_window(posts, limit=limit, since=since, until=until)
 
         def fetch_permalink_bodies(permalink_url: str) -> list[bytes]:
+            # Validated here, NOT via normalize_target_identifier — that
+            # function truncates its input down to a bare profile URL, which
+            # would silently mangle a post permalink's full path. This still
+            # closes the same gap: an unvalidated string from parsed post
+            # content must not reach the authenticated browser unchecked.
+            try:
+                profiles.validate_permalink_url(permalink_url)
+            except InvalidIdentifierError:
+                return []
             time.sleep(random.uniform(*scroll_pause))
             permalink_response = session.fetch(permalink_url, timeout=30000)
             return [xhr.body for xhr in permalink_response.captured_xhr]
@@ -127,12 +151,24 @@ def fetch_profile(
         # the scope/value tradeoff isn't worth it yet (roadmap candidate).
         for post in filtered:
             if post.text_truncated and not post.text_resolved and post.url:
-                resolved = truncation.resolve_truncated_text(post.url, fetch_permalink_bodies)
+                # One bad permalink (dead link, redirect, timeout) must not
+                # discard every other already-fetched, already-parsed post —
+                # skip resolving just this one and move on.
+                try:
+                    resolved = truncation.resolve_truncated_text(post.url, fetch_permalink_bodies)
+                except Exception:
+                    resolved = None
                 if resolved:
                     post.text = resolved
                     post.text_resolved = True
 
-    stop_reason = outcome.stop_reason or scroll.STOP_MAX_SCROLLS
+    # `outcome.stop_reason` staying None here means scroll() raised before
+    # reaching any of its own stop_reason assignments — an exception inside a
+    # scrapling page_action is swallowed (see scroll.py's module docstring),
+    # so this is the only place that can notice. Falling back to
+    # STOP_MAX_SCROLLS would mislabel a genuine crash as a normal, complete
+    # 40/40-scroll run; report it honestly instead.
+    stop_reason = outcome.stop_reason or scroll.STOP_UNKNOWN_ERROR
     return RetrieveResult(
         posts=filtered,
         stop_reason=stop_reason,

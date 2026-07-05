@@ -26,8 +26,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install package + dev dependencies
-        run: python -m pip install -e ".[dev]"
+      - name: Install pinned dev dependencies
+        run: python -m pip install -r requirements-dev.lock
+
+      - name: Install package (dependencies already pinned above)
+        run: python -m pip install -e . --no-deps
 
       - name: Ruff lint
         run: ruff check .
@@ -66,6 +69,10 @@ jobs:
         run: python -m build --wheel
 
       - name: Install built wheel into a clean venv
+        # POSIX venv layout (bin/, not Scripts\) and the bash default shell
+        # both assume macos-latest/ubuntu-latest only — adding windows-latest
+        # to the matrix above would need this step rewritten, not just the
+        # matrix line (Windows unsupported in v1; see README/pyproject).
         run: |
           python -m venv smoke-venv
           smoke-venv/bin/pip install dist/*.whl

@@ -37,6 +37,11 @@ STOP_SINCE_CROSSED = "since_crossed"
 STOP_FEED_EXHAUSTED = "feed_exhausted"
 STOP_MAX_SCROLLS = "max_scrolls"
 STOP_FEED_STALLED = "feed_stalled"
+#: scroll() raised before reaching any of the reasons above — an exception
+#: inside a scrapling page_action is swallowed (see module docstring), so
+#: retrieve.py falls back to this rather than mislabeling a crash as a
+#: legitimate, complete max_scrolls run.
+STOP_UNKNOWN_ERROR = "unknown_error"
 
 #: consecutive scroll batches with no newly-discovered top-level post before
 #: we call it a stall rather than just slow loading.
@@ -105,27 +110,43 @@ def make_scroll_action(
 
     The callable never raises (see module docstring); the caller inspects the
     returned ``ScrollOutcome`` after ``session.fetch()`` completes.
+
+    All mutable state (the outcome's fields, captured bodies, stall counter)
+    is (re)initialized INSIDE ``scroll()`` itself, not in this outer function.
+    scrapling's ``DynamicSession.fetch()`` retries internally by default
+    (``retries=3``) on a brand-new page, calling this same ``page_action``
+    again — state initialized only once out here would carry stale, partial
+    results from a failed earlier attempt into the eventually-successful one.
     """
     scroll_pause = clamp_scroll_pause(scroll_pause)
     outcome = ScrollOutcome()
-    captured_bodies: list[bytes] = []
     xhr_pattern = re.compile(CAPTURE_XHR_PATTERN)
-    stalled_batches = 0
-
-    def on_response(response) -> None:
-        try:
-            if response.request.resource_type not in ("xhr", "fetch"):
-                return
-            if not xhr_pattern.search(response.url):
-                return
-            captured_bodies.append(response.body())
-        except Exception:
-            # Best-effort side channel only — the final response.captured_xhr
-            # (read by retrieve.py after fetch() returns) is authoritative.
-            pass
 
     def scroll(page) -> None:
-        nonlocal stalled_batches
+        outcome.stop_reason = None
+        outcome.wall_detected = None
+        outcome.profile_unavailable = False
+        outcome.scrolls_performed = 0
+        outcome.top_level_ids_seen = set()
+        outcome.oldest_non_pinned_seen = None
+        outcome.newest_non_pinned_seen = None
+
+        captured_bodies: list[bytes] = []
+        stalled_batches = 0
+
+        def on_response(response) -> None:
+            try:
+                if response.request.resource_type not in ("xhr", "fetch"):
+                    return
+                if not xhr_pattern.search(response.url):
+                    return
+                captured_bodies.append(response.body())
+            except Exception:
+                # Best-effort side channel only — the final
+                # response.captured_xhr (read by retrieve.py after fetch()
+                # returns) is authoritative.
+                pass
+
         page.on("response", on_response)
 
         wall = detect_wall(page.url)

@@ -35,12 +35,24 @@ _SENSITIVE_KEYS = frozenset(
 
 _TEXT_KEYS = frozenset({"text", "message", "name", "author_name", "title", "description"})
 
-_CDN_HOST_RE = re.compile(
-    r"(?:scontent[.\-][a-z0-9.\-]*\.fbcdn\.net|fbcdn\.net|fbstatic-a\.akamaihd\.net)$",
-    re.IGNORECASE,
-)
+# Domain-boundary-anchored: a bare substring match (the old pattern) would
+# also match an attacker-controlled lookalike host like "evilfbcdn.net".
+# Over-matching there is harmless (just over-redacts), but the same sloppy
+# construction risks the opposite, dangerous mistake elsewhere: under-
+# matching a real signed host and leaking it unredacted.
+_CDN_HOST_RE = re.compile(r"(?:^|\.)fbcdn\.net$|^fbstatic-a\.akamaihd\.net$", re.IGNORECASE)
 
-_FB_DTSG_INLINE_RE = re.compile(r'"(fb_dtsg|lsd|jazoest)"\s*:\s*"[^"]*"')
+_SENSITIVE_KEY_ALTERNATION = "|".join(re.escape(key) for key in sorted(_SENSITIVE_KEYS))
+
+# Two shapes of the same leak: JSON `"key":"value"` and bare `key=value` (a
+# querystring, or a raw cookie/header line dumped into an error message). The
+# old pattern only covered fb_dtsg/lsd/jazoest in the JSON shape — datr/sb/
+# c_user/xs/token/access_token/cookie are live Facebook session-hijacking
+# credentials and must be caught in both shapes too.
+_SENSITIVE_JSON_RE = re.compile(rf'"({_SENSITIVE_KEY_ALTERNATION})"\s*:\s*"[^"]*"', re.IGNORECASE)
+_SENSITIVE_KEY_VALUE_RE = re.compile(
+    rf"\b({_SENSITIVE_KEY_ALTERNATION})\s*[:=]\s*[^\s;&\"']+", re.IGNORECASE
+)
 
 _TEXT_TRUNCATE_LEN = 40
 
@@ -71,7 +83,8 @@ def redact_text(value: str, max_len: int = _TEXT_TRUNCATE_LEN) -> str:
 
 def redact_raw_text(text: str) -> str:
     """Scrub an unstructured blob (a raw captured body dumped into an error message)."""
-    text = _FB_DTSG_INLINE_RE.sub(lambda m: f'"{m.group(1)}":"[REDACTED]"', text)
+    text = _SENSITIVE_JSON_RE.sub(lambda m: f'"{m.group(1)}":"[REDACTED]"', text)
+    text = _SENSITIVE_KEY_VALUE_RE.sub(lambda m: f"{m.group(1)}=[REDACTED]", text)
 
     def _scrub_url(match: re.Match) -> str:
         return redact_url(match.group(0))

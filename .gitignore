@@ -20,7 +20,16 @@ profiles/
 *.json
 *.ndjson
 
-# Un-ignore the committed, synthetic-by-construction fixtures.
-!tests/fixtures/*.ndjson
+# Un-ignore the committed, synthetic-by-construction fixtures — enumerated
+# explicitly, NOT a wildcard. A wildcard un-ignore (`!tests/fixtures/*.ndjson`)
+# would re-include ANY new .ndjson dropped into this directory, not just
+# these known-synthetic ones — defeating the whole point of the blanket
+# ignore above. Adding a new fixture means adding its name here too.
+!tests/fixtures/basic_status_post.ndjson
+!tests/fixtures/media_and_links.ndjson
+!tests/fixtures/pinned_decoy_and_missing_date.ndjson
+!tests/fixtures/shared_post.ndjson
+!tests/fixtures/split_defer_merge.ndjson
+!tests/fixtures/truncated_post.ndjson
 
 .DS_Store

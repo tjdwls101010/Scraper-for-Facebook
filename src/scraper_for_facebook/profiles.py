@@ -43,9 +43,26 @@ def resolve_profile_dir(name: str, profile_dir_override: str | os.PathLike | Non
 
 
 def ensure_profile_dir(path: Path) -> Path:
-    """Create the profile directory (and parents) with 0700 permissions, idempotently."""
-    path.mkdir(parents=True, exist_ok=True)
+    """Create the profile directory (and parents) with 0700 permissions, idempotently.
+
+    A restrictive umask during ``mkdir`` means every directory it creates —
+    including the shared "profiles" root, via ``parents=True`` — is born at
+    0700 directly, rather than briefly sitting at the ambient (often 0755)
+    umask-determined mode before a later chmod tightens it. The explicit
+    chmod calls afterward are a second layer: they also correct a root
+    directory left loose by a prior run before this fix existed.
+    """
+    old_umask = os.umask(0o077)
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    finally:
+        os.umask(old_umask)
     os.chmod(path, _PROFILE_DIR_MODE)
+    if path.parent != path:
+        try:
+            os.chmod(path.parent, _PROFILE_DIR_MODE)
+        except OSError:
+            pass
     return path
 
 
@@ -128,3 +145,26 @@ def _normalize_url(raw: str) -> str:
         raise InvalidIdentifierError(f"invalid vanity path segment {first_segment!r}")
 
     return f"https://www.facebook.com/{quote(first_segment)}"
+
+
+def validate_permalink_url(url: str) -> str:
+    """Scheme/host allowlist check for a URL the browser is about to navigate to.
+
+    Used for post permalinks (e.g. the truncated-text refetch), which — unlike
+    a caller-supplied profile identifier — must NOT be rewritten:
+    ``normalize_target_identifier`` truncates its input down to just the
+    first path segment (correct for a profile target, wrong for a post
+    permalink's full ``/profile/posts/123``-shaped path). Without this check,
+    a permalink pulled out of parsed Facebook content would be the one
+    unvalidated string reaching the authenticated browser — exactly the
+    navigation-primitive risk this module's docstring says must not exist.
+    """
+    parts = urlsplit(url)
+    if parts.scheme != "https":
+        raise InvalidIdentifierError(f"unsupported scheme {parts.scheme!r}: only https is accepted")
+    host = parts.netloc.split("@")[-1].split(":")[0].lower()
+    if host not in _ALLOWED_HOSTS:
+        raise InvalidIdentifierError(
+            f"unsupported host {host!r}: must be one of {sorted(_ALLOWED_HOSTS)}"
+        )
+    return url

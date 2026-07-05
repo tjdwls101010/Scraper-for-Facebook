@@ -5,6 +5,13 @@ Fixtures under tests/fixtures/ must be hand-authored, PII-free synthetic
 skeletons (see plan §13) — never a mutated real capture. This is a coarse,
 allowlist-based gate, not a guarantee: every fixture diff still needs human
 review before merge.
+
+SCOPE, STATED PLAINLY: this only pattern-matches structural artifacts (CDN
+hosts, token-shaped keys, emails, phone numbers, high-entropy strings). It
+has NO detector for free-text PII — a real person's actual name or sensitive
+message content, with no token/email/phone/CDN-host/high-entropy-string
+anywhere in the line, passes this gate silently. Human review is the actual
+control for that category, not this script.
 """
 
 from __future__ import annotations
@@ -79,7 +86,8 @@ def main() -> int:
         )
         return 1
     print(
-        f"Fixture PII/secret scan OK ({len(list(FIXTURES_DIR.glob('*.ndjson')))} file(s) checked)."
+        f"Fixture PII/secret scan OK ({len(list(FIXTURES_DIR.glob('*.ndjson')))} file(s) checked) "
+        "— structural checks only; still needs human review for real names/free-text PII."
     )
     return 0
 

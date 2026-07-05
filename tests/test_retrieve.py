@@ -70,6 +70,16 @@ def test_sort_pinned_first_then_newest_first_then_unknown_last():
     assert [p.id for p in result] == ["pinned", "newer", "older", "unknown"]
 
 
+def test_sort_multiple_pinned_posts_by_recency_not_encounter_order():
+    posts = [
+        _make_post("pinned_older", created_at=datetime(2020, 1, 1, tzinfo=UTC), is_pinned=True),
+        _make_post("pinned_newer", created_at=datetime(2024, 1, 1, tzinfo=UTC), is_pinned=True),
+        _make_post("normal", created_at=datetime(2025, 1, 1, tzinfo=UTC)),
+    ]
+    result = _apply_window(posts, limit=None, since=None, until=None)
+    assert [p.id for p in result] == ["pinned_newer", "pinned_older", "normal"]
+
+
 def test_limit_is_applied_after_windowing_and_sorting():
     posts = [_make_post(str(i), created_at=datetime(2025, 1, i + 1, tzinfo=UTC)) for i in range(5)]
     result = _apply_window(posts, limit=2, since=None, until=None)
@@ -81,14 +91,21 @@ def test_since_reached_true_when_since_not_requested():
     assert _since_reached(None, scroll.STOP_MAX_SCROLLS) is True
 
 
-def test_since_reached_true_on_since_crossed_or_feed_exhausted_or_limit_reached():
+def test_since_reached_true_on_since_crossed_or_feed_exhausted():
     since = date(2025, 1, 1)
     assert _since_reached(since, scroll.STOP_SINCE_CROSSED) is True
     assert _since_reached(since, scroll.STOP_FEED_EXHAUSTED) is True
-    assert _since_reached(since, scroll.STOP_LIMIT_REACHED) is True
 
 
 def test_since_reached_false_when_stalled_or_maxed_out_before_crossing():
     since = date(2025, 1, 1)
     assert _since_reached(since, scroll.STOP_MAX_SCROLLS) is False
     assert _since_reached(since, scroll.STOP_FEED_STALLED) is False
+
+
+def test_since_reached_false_on_limit_reached():
+    # Hitting --limit proves nothing about whether --since was ever crossed
+    # (scroll.py checks limit before since each batch) — the CLI's exit-0
+    # treatment of limit_reached is a separate, CLI-level judgment call, not
+    # something this field should misrepresent to other callers.
+    assert _since_reached(date(2025, 1, 1), scroll.STOP_LIMIT_REACHED) is False
