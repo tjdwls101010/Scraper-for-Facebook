@@ -101,7 +101,7 @@ Each post in the JSON/NDJSON output looks like this (values below are illustrati
 }
 ```
 
-See the [Output Schema](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki/Output-Schema) wiki page for a field-by-field reference, including `media`/`links`/`shared_post` shapes.
+See [Output Schema](wiki/Output-Schema.md) for a field-by-field reference, including `media`/`links`/`shared_post` shapes.
 
 ## CLI reference
 
@@ -181,17 +181,17 @@ FacebookScraper(profile="default").status()   # -> Status.LOGGED_IN | EXPIRED | 
 
 ## Documentation
 
-This README covers the essentials. For everything else, see the **[wiki](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki)**:
+This README covers the essentials. For everything else, see the **[wiki](wiki/README.md)**:
 
-- [Installation](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki/Installation) — platform notes, upgrading, uninstalling
-- [Quick Start](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki/Quick-Start) — a longer walkthrough than this README's
-- [CLI Reference](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki/CLI-Reference) — every flag, every exit code, with examples
-- [Python API Reference](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki/Python-API-Reference)
-- [Output Schema](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki/Output-Schema) — every `Post`/`Media`/`LinkAttachment` field explained
-- [Configuration](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki/Configuration) — profiles, environment variables, tuning scroll pacing
-- [FAQ & Troubleshooting](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki/FAQ-and-Troubleshooting)
-- [Security & Privacy](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki/Security-and-Privacy) — the full threat model behind [DISCLAIMER.md](DISCLAIMER.md)
-- [Contributing](https://github.com/tjdwls101010/Scraper-for-Facebook/wiki/Contributing) — dev setup, testing, release process
+- [Installation](wiki/Installation.md) — platform notes, upgrading, uninstalling
+- [Quick Start](wiki/Quick-Start.md) — a longer walkthrough than this README's
+- [CLI Reference](wiki/CLI-Reference.md) — every flag, every exit code, with examples
+- [Python API Reference](wiki/Python-API-Reference.md)
+- [Output Schema](wiki/Output-Schema.md) — every `Post`/`Media`/`LinkAttachment` field explained
+- [Configuration](wiki/Configuration.md) — profiles, environment variables, tuning scroll pacing
+- [FAQ & Troubleshooting](wiki/FAQ-and-Troubleshooting.md)
+- [Security & Privacy](wiki/Security-and-Privacy.md) — the full threat model behind [DISCLAIMER.md](DISCLAIMER.md)
+- [Contributing](wiki/Contributing.md) — dev setup, testing, release process
 
 ## Contributing
 
