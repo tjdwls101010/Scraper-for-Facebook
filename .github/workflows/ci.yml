@@ -81,3 +81,4 @@ jobs:
         run: |
           smoke-venv/bin/scrape-fb --version
           smoke-venv/bin/scrape-fb --help
+          smoke-venv/bin/scrape-fb schema

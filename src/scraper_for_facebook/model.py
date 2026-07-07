@@ -176,6 +176,158 @@ def _classify_type(story: dict, media: list[dict], links: list[dict], has_shared
     return "unknown"
 
 
+#: One entry per key ``Post.to_dict()`` can emit: (JSON type, one-line meaning).
+#: Co-located with the dataclass so a field rename/addition is edited in the
+#: same file as the field itself, not in a separate skill repo (plan §10a).
+#: Types are the JSON shape a consumer of the output file sees, NOT the
+#: Python dataclass annotation — e.g. ``created_at`` is ``datetime | None``
+#: in Python but serializes to ``string | null`` via ``_iso()``.
+FIELD_DESCRIPTIONS: dict[str, tuple[str, str]] = {
+    "id": (
+        "string",
+        "Stable identity/dedup key for this post — dedupe on this, never on captured_at.",
+    ),
+    "url": ("string | null", "Permalink to the post, or null if one could not be located."),
+    "type": (
+        "string",
+        "One of status | photo | video | shared | link | reel | life_event | unknown.",
+    ),
+    "is_pinned": (
+        "boolean",
+        "True for a pinned post. Pinned posts bypass --since/--until and always appear first.",
+    ),
+    "author_name": ("string | null", "Display name of the post's author."),
+    "author_url": ("string | null", "Profile URL of the post's author."),
+    "author_id": ("string | null", "Numeric id of the post's author."),
+    "created_at": (
+        "string | null",
+        "ISO-8601 UTC timestamp with a 'Z' suffix; null if it could not be located.",
+    ),
+    "edited_at": (
+        "string | null",
+        "ISO-8601 UTC timestamp of the last edit; null if never edited.",
+    ),
+    "text": ("string", "Full post body, truncation-resolved when possible; empty string if none."),
+    "text_truncated": (
+        "boolean",
+        "The captured payload carried a truncation marker, regardless of whether it was resolved.",
+    ),
+    "text_resolved": ("boolean", "A follow-up permalink fetch recovered the full truncated text."),
+    "media": (
+        "array<object>",
+        "List of {kind, url, width, height}. url is a signed, expiring, viewer-scoped "
+        "fbcdn/scontent link — treat as sensitive, never print unredacted.",
+    ),
+    "links": ("array<object>", "List of {url, title, description} for shared external links."),
+    "reaction_count": ("integer | null", "Reaction count, or null if unavailable."),
+    "comment_count": ("integer | null", "Comment count, or null if unavailable."),
+    "share_count": ("integer | null", "Share count, or null if unavailable."),
+    "shared_post": (
+        "object | null",
+        "A nested post for an attached/shared story, or null. Can itself have a "
+        "non-null shared_post on a share-of-a-share — nesting isn't capped at one level.",
+    ),
+    "captured_at": (
+        "string",
+        "ISO-8601 UTC timestamp of when this tool captured the response. Changes every "
+        "run — never a dedup key.",
+    ),
+    "raw": (
+        "object",
+        "Present only when --raw was passed. The raw captured story node, redacted "
+        "by default unless --no-redact was also passed.",
+    ),
+}
+
+
+def _schema_representative_post() -> Post:
+    """A fully-populated ``Post`` (including ``raw``) purely so ``to_dict()``
+    emits every possible key — the source of truth for ``schema_fields()``.
+
+    Deliberately NOT ``dataclasses.fields(Post)``: that returns 20 names
+    including ``raw`` unconditionally, but ``to_dict()`` only emits ``raw``
+    when it is populated (i.e. only under ``--raw``), so fields() would
+    mis-document it as always-present.
+    """
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    return Post(
+        id="1",
+        url=None,
+        type="status",
+        is_pinned=False,
+        author_name=None,
+        author_url=None,
+        author_id=None,
+        created_at=now,
+        edited_at=None,
+        text="",
+        text_truncated=False,
+        text_resolved=False,
+        media=[],
+        links=[],
+        reaction_count=None,
+        comment_count=None,
+        share_count=None,
+        shared_post=None,
+        captured_at=now,
+        raw={},
+    )
+
+
+def schema_fields() -> list[dict]:
+    """Ordered field descriptors for every key ``Post.to_dict()`` can emit.
+
+    Each entry: ``name``, ``type`` (JSON type, not the Python annotation),
+    ``description``, and ``always_present`` (False only for ``raw``).
+    """
+    keys = list(_schema_representative_post().to_dict().keys())
+    return [
+        {
+            "name": key,
+            "type": FIELD_DESCRIPTIONS[key][0],
+            "description": FIELD_DESCRIPTIONS[key][1],
+            "always_present": key != "raw",
+        }
+        for key in keys
+    ]
+
+
+#: Maps this module's JSON-type labels to JSON Schema (draft 2020-12) type
+#: constraints. Kept as an explicit table, not derived from the dataclass
+#: annotations, for the same reason ``schema_fields`` avoids ``dataclasses.
+#: fields`` — the Python type and the JSON type are not the same thing here.
+_JSON_SCHEMA_TYPES: dict[str, dict] = {
+    "string": {"type": "string"},
+    "string | null": {"type": ["string", "null"]},
+    "boolean": {"type": "boolean"},
+    "integer | null": {"type": ["integer", "null"]},
+    "array<object>": {"type": "array", "items": {"type": "object"}},
+    "object | null": {"type": ["object", "null"]},
+    "object": {"type": "object"},
+}
+
+
+def json_schema() -> dict:
+    """The fetch output object as JSON Schema (draft 2020-12)."""
+    fields = schema_fields()
+    properties = {}
+    required = []
+    for field in fields:
+        prop = dict(_JSON_SCHEMA_TYPES[field["type"]])
+        prop["description"] = field["description"]
+        properties[field["name"]] = prop
+        if field["always_present"]:
+            required.append(field["name"])
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "Post",
+        "description": "One element of the fetch output array (or one NDJSON line).",
+        "type": "object",
+        "properties": properties,
+        "required": required,
+    }
+
+
 def build_post(story: dict, *, captured_at: datetime, include_raw: bool = False) -> Post:
     """Normalize one deep-merged story dict (from ``parse.parse_story_nodes``) into a ``Post``.
 

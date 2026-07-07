@@ -1,7 +1,15 @@
 from datetime import UTC, datetime
 
 from scraper_for_facebook import parse
-from scraper_for_facebook.model import LinkAttachment, Media, Post, build_post
+from scraper_for_facebook.model import (
+    FIELD_DESCRIPTIONS,
+    LinkAttachment,
+    Media,
+    Post,
+    build_post,
+    json_schema,
+    schema_fields,
+)
 
 CAPTURED_AT = datetime(2026, 7, 5, tzinfo=UTC)
 
@@ -118,3 +126,67 @@ def test_post_to_dict_includes_raw_only_when_set():
         raw={"secret": "stuff"},
     )
     assert post.to_dict()["raw"] == {"secret": "stuff"}
+
+
+def _minimal_post(**overrides) -> Post:
+    fields = {
+        "id": "1",
+        "url": None,
+        "type": "status",
+        "is_pinned": False,
+        "author_name": None,
+        "author_url": None,
+        "author_id": None,
+        "created_at": None,
+        "edited_at": None,
+        "text": "",
+        "text_truncated": False,
+        "text_resolved": False,
+        "media": [],
+        "links": [],
+        "reaction_count": None,
+        "comment_count": None,
+        "share_count": None,
+        "shared_post": None,
+        "captured_at": datetime(2026, 1, 1, tzinfo=UTC),
+    }
+    fields.update(overrides)
+    return Post(**fields)
+
+
+def test_schema_fields_match_to_dict_keys_without_raw():
+    # Anchored on to_dict() output, NOT dataclasses.fields(Post) — the latter
+    # returns 20 names including `raw` unconditionally, which would
+    # mis-document `raw` as always-present (plan §10a).
+    to_dict_keys = set(_minimal_post().to_dict().keys())
+    assert len(to_dict_keys) == 19
+    schema_names = {f["name"] for f in schema_fields() if f["always_present"]}
+    assert schema_names == to_dict_keys
+
+
+def test_schema_fields_include_raw_only_flagged_correctly():
+    to_dict_keys_with_raw = set(_minimal_post(raw={"x": 1}).to_dict().keys())
+    assert len(to_dict_keys_with_raw) == 20
+    all_schema_names = {f["name"] for f in schema_fields()}
+    assert all_schema_names == to_dict_keys_with_raw
+    raw_entry = next(f for f in schema_fields() if f["name"] == "raw")
+    assert raw_entry["always_present"] is False
+
+
+def test_every_to_dict_key_has_a_description():
+    # A new to_dict() key with no FIELD_DESCRIPTIONS entry must fail here,
+    # not surface as a silent KeyError deep inside schema_fields().
+    to_dict_keys = set(_minimal_post(raw={"x": 1}).to_dict().keys())
+    assert to_dict_keys.issubset(FIELD_DESCRIPTIONS.keys())
+
+
+def test_json_schema_uses_json_types_not_python_annotations():
+    schema = json_schema()
+    assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+    # created_at is `datetime | None` in Python but must render as the JSON
+    # shape a consumer actually sees: string-or-null, never "datetime".
+    assert schema["properties"]["created_at"]["type"] == ["string", "null"]
+    assert schema["properties"]["media"]["type"] == "array"
+    assert schema["properties"]["shared_post"]["type"] == ["object", "null"]
+    assert "raw" not in schema["required"]
+    assert "id" in schema["required"]

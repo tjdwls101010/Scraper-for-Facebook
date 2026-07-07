@@ -23,7 +23,7 @@ from .errors import (
     ProfileUnavailableError,
     SessionExpiredError,
 )
-from .model import Post
+from .model import Post, json_schema, schema_fields
 from .session import Status
 
 
@@ -44,6 +44,12 @@ def _parse_iso_date(value: str) -> date:
         return date.fromisoformat(value)
     except ValueError:
         raise argparse.ArgumentTypeError(f"expected YYYY-MM-DD, got {value!r}") from None
+
+
+_PROFILE_DIR_HELP = (
+    "Override where this profile's browser data lives "
+    "(default: platform data dir, or $SFB_PROFILE_DIR)."
+)
 
 
 class _ArgumentParser(argparse.ArgumentParser):
@@ -69,13 +75,33 @@ def build_parser() -> argparse.ArgumentParser:
     login_p = subparsers.add_parser(
         "login", help="One-time interactive login (opens a real browser window)."
     )
-    login_p.add_argument("--profile", default=DEFAULT_PROFILE_NAME)
-    login_p.add_argument("--profile-dir", default=None)
+    login_p.add_argument(
+        "--profile",
+        default=DEFAULT_PROFILE_NAME,
+        help="Named login session to save (default: 'default').",
+    )
+    login_p.add_argument(
+        "--profile-dir",
+        default=None,
+        help=_PROFILE_DIR_HELP,
+    )
 
     status_p = subparsers.add_parser("status", help="Check whether a profile is logged in.")
-    status_p.add_argument("--profile", default=DEFAULT_PROFILE_NAME)
-    status_p.add_argument("--profile-dir", default=None)
-    status_p.add_argument("--json", action="store_true")
+    status_p.add_argument(
+        "--profile",
+        default=DEFAULT_PROFILE_NAME,
+        help="Named login session to check (default: 'default').",
+    )
+    status_p.add_argument(
+        "--profile-dir",
+        default=None,
+        help=_PROFILE_DIR_HELP,
+    )
+    status_p.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON to stdout instead of a human summary to stderr.",
+    )
 
     setup_p = subparsers.add_parser("setup", help="Provision the browser into an isolated cache.")
     setup_p.add_argument(
@@ -85,20 +111,88 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_p = subparsers.add_parser(
         "doctor", help="Launch the browser and verify a capture round-trips."
     )
-    doctor_p.add_argument("--profile", default=DEFAULT_PROFILE_NAME)
-    doctor_p.add_argument("--profile-dir", default=None)
+    doctor_p.add_argument(
+        "--profile",
+        default=DEFAULT_PROFILE_NAME,
+        help="Named login session to check (default: 'default').",
+    )
+    doctor_p.add_argument(
+        "--profile-dir",
+        default=None,
+        help=_PROFILE_DIR_HELP,
+    )
+
+    schema_p = subparsers.add_parser(
+        "schema", help="Print the fetch output object schema (offline, no login needed)."
+    )
+    schema_p.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON Schema (draft 2020-12) instead of a plain annotated listing.",
+    )
 
     fetch_p = subparsers.add_parser("fetch", help="Fetch posts from a profile timeline.")
     fetch_p.add_argument("identifier", help="Profile URL, vanity name, or numeric id.")
-    fetch_p.add_argument("--profile", default=DEFAULT_PROFILE_NAME)
-    fetch_p.add_argument("--profile-dir", default=None)
-    fetch_p.add_argument("--limit", type=int, default=None)
-    fetch_p.add_argument("--since", type=_parse_iso_date, default=None)
-    fetch_p.add_argument("--until", type=_parse_iso_date, default=None)
-    fetch_p.add_argument("--format", choices=["json", "ndjson"], default="json")
-    fetch_p.add_argument("--output", default=None)
-    fetch_p.add_argument("--scroll-pause", type=_parse_scroll_pause, default=DEFAULT_SCROLL_PAUSE)
-    fetch_p.add_argument("--max-scrolls", type=int, default=DEFAULT_MAX_SCROLLS)
+    fetch_p.add_argument(
+        "--profile",
+        default=DEFAULT_PROFILE_NAME,
+        help="Named login session to use (default: 'default').",
+    )
+    fetch_p.add_argument(
+        "--profile-dir",
+        default=None,
+        help=_PROFILE_DIR_HELP,
+    )
+    fetch_p.add_argument(
+        "--limit", type=int, default=None, help="Stop after this many posts (default: unbounded)."
+    )
+    fetch_p.add_argument(
+        "--since",
+        type=_parse_iso_date,
+        default=None,
+        help=(
+            "Keep posts on/after this date YYYY-MM-DD; best-effort within "
+            "--max-scrolls (see exit 7)."
+        ),
+    )
+    fetch_p.add_argument(
+        "--until",
+        type=_parse_iso_date,
+        default=None,
+        help="Keep posts on/before this date YYYY-MM-DD.",
+    )
+    fetch_p.add_argument(
+        "--format",
+        choices=["json", "ndjson"],
+        default="json",
+        help="A single pretty-printed JSON array, or one NDJSON object per line (default: json).",
+    )
+    fetch_p.add_argument(
+        "--output",
+        default=None,
+        help=(
+            "Where to write results (default: a timestamped file under the "
+            "platform data dir, not cwd)."
+        ),
+    )
+    fetch_p.add_argument(
+        "--scroll-pause",
+        type=_parse_scroll_pause,
+        default=DEFAULT_SCROLL_PAUSE,
+        help=(
+            "MIN,MAX seconds between scrolls; MIN is clamped to >= 0.5s and "
+            "cannot be bypassed (default: 2.0,4.0)."
+        ),
+    )
+    fetch_p.add_argument(
+        "--max-scrolls",
+        type=int,
+        default=DEFAULT_MAX_SCROLLS,
+        help=(
+            "Scroll-iteration ceiling; if the budget runs out before --limit/--since is met, "
+            "the run stops with them unmet (default: 40)."
+        ),
+    )
     fetch_p.add_argument("--headed", action="store_true", help="Show the browser (debugging).")
     fetch_p.add_argument(
         "--raw", action="store_true", help="Include the raw captured story node per post."
@@ -108,7 +202,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable PII scrubbing on --raw output (prints an on-screen warning).",
     )
-    fetch_p.add_argument("-v", "--verbose", action="store_true")
+    fetch_p.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help=(
+            "Print the full (still redaction-scrubbed) error text instead of "
+            "just the exception type name."
+        ),
+    )
 
     return parser
 
@@ -164,6 +266,18 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     ok, message = session.run_doctor(profile_dir)
     print(redact.redact_raw_text(message), file=sys.stderr)
     return 0 if ok else 1
+
+
+def _cmd_schema(args: argparse.Namespace) -> int:
+    if args.json:
+        print(json.dumps(json_schema(), indent=2))
+        return 0
+    print("Post — one element of the fetch output array (or one NDJSON line):\n")
+    for field in schema_fields():
+        note = "" if field["always_present"] else " (only present with --raw)"
+        print(f"  {field['name']} : {field['type']}{note}")
+        print(f"      {field['description']}")
+    return 0
 
 
 def _redact_raw_recursive(post: Post) -> None:
@@ -294,6 +408,7 @@ _HANDLERS = {
     "status": _cmd_status,
     "setup": _cmd_setup,
     "doctor": _cmd_doctor,
+    "schema": _cmd_schema,
     "fetch": _cmd_fetch,
 }
 
