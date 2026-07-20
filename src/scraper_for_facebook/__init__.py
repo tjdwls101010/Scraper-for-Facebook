@@ -132,6 +132,13 @@ class FacebookScraper:
         result = retrieve_module.fetch_profile(
             normalized_url,
             profile_dir=self._profile_dir,
+            # Must travel with profile_dir, not default separately: active mode
+            # keys its token cache by profile NAME while the browser session is
+            # keyed by DIRECTORY. Letting the name fall back to "default" while
+            # the directory points at another profile makes the two disagree —
+            # the run would read (and overwrite) a different account's cached
+            # cookies than the browser profile it is actually driving.
+            profile_name=self.profile,
             headless=self.headless,
             limit=limit,
             since=_parse_date(since),
