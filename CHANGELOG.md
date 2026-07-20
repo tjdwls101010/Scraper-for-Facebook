@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-20
+
+### Added
+- **`scrape-fb catalog [--json]`** — the CLI describing itself: every command and flag, the exit-code contract, the output contract, the object types, and the known limitations, in one call. It is **derived, not authored**: commands and flags are introspected from the live `argparse` parser, object types come from the same `to_dict()`-anchored functions `schema` uses, and exit codes come from a single table. Anything that needs to explain this tool (docs, an agent, a `.claude` skill) can now read it instead of transcribing it and drifting.
+- `tests/test_catalog.py` enforces that derivation: adding a command or flag without it appearing in the catalog fails the suite, as does a subcommand with no handler.
+
+### Changed
+- Exit codes moved from scattered integer literals in `cli.py` into `exits.py`, which is now the single source for both the CLI's behavior and its description. No exit code changed value.
+
+
 ## [0.3.0] - 2026-07-20
 
 Adds an **active transport** — reading Facebook's GraphQL API over plain HTTP,

@@ -9,7 +9,7 @@ import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from . import __version__, profiles, redact, retrieve, scroll, session, tokens
+from . import __version__, catalog, exits, profiles, redact, retrieve, scroll, session, tokens
 from .comments import json_schema as comment_json_schema
 from .comments import schema_fields as comment_schema_fields
 from .config import (
@@ -229,6 +229,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit JSON Schema (draft 2020-12) instead of a plain annotated listing.",
     )
 
+    catalog_p = subparsers.add_parser(
+        "catalog",
+        help=(
+            "Describe this CLI to a caller: every command, its flags, the exit codes, "
+            "the output contract, and known limitations (offline, no login needed)."
+        ),
+    )
+    catalog_p.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the catalog as JSON for programmatic use instead of a text listing.",
+    )
+
     fetch_p = subparsers.add_parser("fetch", help="Fetch posts from a profile timeline.")
     fetch_p.add_argument("identifier", help="Profile URL, vanity name, or numeric id.")
     _add_profile_args(fetch_p)
@@ -366,7 +379,11 @@ def _cmd_login(args: argparse.Namespace) -> int:
     return 2
 
 
-_STATUS_EXIT_CODES = {Status.LOGGED_IN: 0, Status.EXPIRED: 2, Status.CHECKPOINT: 3}
+_STATUS_EXIT_CODES = {
+    Status.LOGGED_IN: exits.OK,
+    Status.EXPIRED: exits.LOGIN_REQUIRED,
+    Status.CHECKPOINT: exits.CHECKPOINT,
+}
 
 
 def _cmd_status(args: argparse.Namespace) -> int:
@@ -431,6 +448,14 @@ def _cmd_schema(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_catalog(args: argparse.Namespace) -> int:
+    # Built from the same parser the CLI actually runs on, so the catalog cannot
+    # describe a command that doesn't exist or miss one that does.
+    data = catalog.build_catalog(build_parser())
+    print(json.dumps(data, indent=2) if args.json else catalog.render_text(data))
+    return exits.OK
+
+
 def _redact_raw_recursive(post: Post) -> None:
     """Scrub ``post.raw`` AND every nested ``shared_post.raw`` down the chain.
 
@@ -471,13 +496,13 @@ def _run_retrieval(args: argparse.Namespace, call) -> tuple[retrieve.RetrieveRes
         return call(), 0
     except (LoginRequiredError, SessionExpiredError) as exc:
         print(f"{exc} Run: scrape-fb login --profile {args.profile}", file=sys.stderr)
-        return None, 2
+        return None, exits.LOGIN_REQUIRED
     except ChallengeError as exc:
         print(str(exc), file=sys.stderr)
-        return None, 3
+        return None, exits.CHECKPOINT
     except ProfileUnavailableError as exc:
         print(str(exc), file=sys.stderr)
-        return None, 5
+        return None, exits.TARGET_UNAVAILABLE
     except Exception as exc:  # noqa: BLE001 - last-resort CLI boundary
         if args.verbose:
             print(redact.redact_raw_text(f"unexpected error: {exc}"), file=sys.stderr)
@@ -486,7 +511,7 @@ def _run_retrieval(args: argparse.Namespace, call) -> tuple[retrieve.RetrieveRes
                 f"unexpected error: {type(exc).__name__} (rerun with -v for details)",
                 file=sys.stderr,
             )
-        return None, 1
+        return None, exits.ERROR
 
 
 def _write_dicts(rows: list[dict], path: Path, fmt: str) -> None:
@@ -520,7 +545,7 @@ def _cmd_comments(args: argparse.Namespace) -> int:
         return code
     if not result.comments:
         print("0 comments retrieved (the post may have none).", file=sys.stderr)
-        return 4
+        return exits.NO_RESULTS
 
     output_path = (
         Path(args.output) if args.output else _default_output_path("comments", args.format)
@@ -608,7 +633,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
     rows = [p.to_dict() for p in result.posts] + [e.to_dict() for e in result.entities]
     if not rows:
         print("0 results retrieved.", file=sys.stderr)
-        return 4
+        return exits.NO_RESULTS
 
     output_path = (
         Path(args.output)
@@ -690,7 +715,7 @@ def _emit_posts(
             ),
             file=sys.stderr,
         )
-        return 4
+        return exits.NO_RESULTS
 
     if args.raw:
         if args.no_redact:
@@ -718,7 +743,7 @@ def _emit_posts(
         scroll.STOP_FEED_STALLED,
         retrieve.STOP_MAX_PAGES,
     )
-    exit_code = 7 if (since is not None and since_inconclusive) else 0
+    exit_code = exits.SINCE_UNCONFIRMED if (since is not None and since_inconclusive) else exits.OK
     oldest = result.oldest_seen.date().isoformat() if result.oldest_seen else "unknown"
     newest = result.newest_seen.date().isoformat() if result.newest_seen else "unknown"
     reached_note = " (requested --since NOT confirmed reached)" if exit_code == 7 else ""
@@ -736,6 +761,7 @@ _HANDLERS = {
     "setup": _cmd_setup,
     "doctor": _cmd_doctor,
     "schema": _cmd_schema,
+    "catalog": _cmd_catalog,
     "fetch": _cmd_fetch,
     "feed": _cmd_feed,
     "comments": _cmd_comments,

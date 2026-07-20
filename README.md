@@ -185,6 +185,11 @@ people|pages|groups` emits `Entity` objects); `comments` emits `Comment`
 objects. Run `scrape-fb schema` for every field, or `scrape-fb schema --json`
 for JSON Schema.
 
+**`scrape-fb catalog`** prints all of the above — commands, flags, exit codes,
+output contract, object types, known limitations — in one call, generated from
+the CLI itself. It's the authoritative version for whatever release you have
+installed, and it's what a script or an agent should read instead of this page.
+
 ### Exit codes
 
 | Code | Meaning |
