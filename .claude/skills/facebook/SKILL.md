@@ -8,15 +8,50 @@ allowed-tools: Bash(scrape-fb:*), Read
 
 `scrape-fb` gives you fast, structured retrieval. **You supply the navigation.** The CLI is deliberately a set of single-purpose primitives with no `crawl` command — deciding which handle to follow next is your job, and it is the whole reason this skill exists.
 
-## Start here: ask the tool what it can do
+## Step 1 — get the tool, then ask it what it can do
+
+Start every task with this. It both proves the CLI is present and tells you how to use the version that actually is:
 
 ```bash
 scrape-fb catalog          # or: scrape-fb catalog --json
 ```
 
-That prints every command with its real flags, the exit-code contract, the output contract, the object types, and the known limitations — **in one call.** Run it at the start of a task and work from what it says.
+**Two different failures mean "install or upgrade", and it is easy to only notice the first:**
 
-This file deliberately does **not** restate that list. The catalog is generated from the CLI's own parser, so it is correct for the version actually installed; a table copied into this file would silently describe the wrong version the moment the package updates, and you would trust the copy over the truth. Anything you need to *call* a command comes from the catalog. What follows is only the part the catalog can't carry: how to decide what to call next.
+- `command not found` → not installed.
+- `invalid choice: 'catalog'` (or any command below coming back as an invalid choice) → installed, but **too old**. `catalog` arrived in 0.3.1 and `feed`/`comments`/`post`/`search`/`group` in 0.3.0, so a 0.2.x install has only `fetch` and will reject almost everything this skill tells you to do. Do not conclude the command doesn't exist — upgrade and retry.
+
+Either way, install from PyPI into its own isolated environment:
+
+```bash
+uv tool install --upgrade scraper-for-facebook     # or: pipx install --force scraper-for-facebook
+scrape-fb setup                                    # one-time: provisions its own browser
+scrape-fb catalog                                  # confirm: it should now print a version >= 0.3.1
+```
+
+Use `uv tool` or `pipx`, **not** `pip install` into a virtualenv you share with anything else. This package depends on `scrapling[fetchers]`, which pins exact Playwright/patchright versions — dropping it into a shared environment can fail to resolve, or silently break the other Playwright-based tool already living there. If neither `uv` nor `pipx` exists, install one rather than reaching for bare `pip`.
+
+If an upgrade appears to do nothing (still the old version afterward), add `--no-cache`: `uv` caches the package index, so a release published minutes ago can be invisible to a plain `uv tool install --upgrade` while being perfectly present on PyPI.
+
+Note that a repo checkout of this project and the installed CLI are **different things**: running from source (`PYTHONPATH=src python -m scraper_for_facebook.cli`) can be a completely different version from whatever `scrape-fb` on PATH resolves to. The catalog's reported version is the one that counts.
+
+**On checking for the newest version:** don't query PyPI at the start of every task. `scrape-fb catalog` succeeding is already the version check that matters — it exists only in 0.3.1+, and whatever it prints is by construction correct for the build you actually have, so being a release or two behind costs you nothing. Go looking for a newer version when there's a *reason* to: a command rejected as an invalid choice, or the rotation symptom described under "When something fails". Then `uv tool install --upgrade --no-cache scraper-for-facebook` and re-read the catalog.
+
+`scrape-fb catalog` prints every command with its real flags, the exit-code contract, the output contract, the object types, and the known limitations — **in one call.** Work from what it says.
+
+This file deliberately does **not** restate that list. The catalog is generated from the CLI's own parser, so it is correct for the version actually installed; a table copied into this file would silently describe the wrong version the moment the package updates, and you'd trust the copy over the truth. Anything you need to *call* a command comes from the catalog. What follows is only what the catalog can't carry: how to decide what to call next.
+
+## Step 2 — check the session
+
+Retrieval needs a logged-in Facebook session. Check once at the start of a task, not before every command:
+
+```bash
+scrape-fb status          # exit 0 = ready; exit 2 = needs login; exit 3 = checkpoint
+```
+
+If exit 2: **`scrape-fb login` opens a real browser window and needs a human to log in** — it detects completion automatically and times out. You cannot complete it for the user; ask them to, then re-check `status`. The account should be a throwaway, not their main one (see Ban risk).
+
+Any other non-zero exit → see "When something fails" at the end of this file. Read it *before* improvising a retry: for one of these codes, retrying is the wrong move and can get the account banned.
 
 ## The one thing that will trip you up
 
@@ -27,18 +62,6 @@ scrape-fb feed --limit 10 --output /tmp/feed.json    # stderr: "10 posts, range 
 ```
 
 Then `Read /tmp/feed.json`. Always pass `--output` with a path you choose; without it the file lands under the platform data directory with a timestamped name you'd then have to go hunting for.
-
-## Preflight
-
-Retrieval needs a logged-in session. Check once at the start of a task, not before every command:
-
-```bash
-scrape-fb status          # exit 0 = ready; exit 2 = needs login; exit 3 = checkpoint
-```
-
-If it is not installed: `uv tool install scraper-for-facebook` then `scrape-fb setup` (provisions its own isolated browser). If exit 2: **`scrape-fb login` opens a real browser window and needs a human to log in** — it detects completion automatically and times out. You cannot complete it for the user; ask them to do it, then re-check `status`.
-
-Any other non-zero exit → see "When something fails" at the end of this file. Read it *before* improvising a retry: for one of these codes, retrying is the wrong move and can get the account banned.
 
 ## What each primitive is *for*
 
