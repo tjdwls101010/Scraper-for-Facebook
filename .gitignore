@@ -39,4 +39,8 @@ profiles/
 .claude/.e2e-runs/
 *.jsonl
 
+# Scratch space for vendored reference material and sibling working copies —
+# 355MB / 3400+ files at the time of writing. Never part of this package.
+.tmp/
+
 .DS_Store

@@ -1,26 +1,93 @@
 # Python API Reference
 
-Everything in this page is importable from the top-level `scraper_for_facebook` package. If you only need the CLI, see [CLI Reference](CLI-Reference.md) instead — this page is for embedding scraping into your own Python code.
+The public `scraper_for_facebook` Python API — `FacebookScraper`, its two retrieval methods, the result object, and the exception hierarchy — documented as it actually is in v0.3.1.
 
-Read [DISCLAIMER.md](../DISCLAIMER.md) before writing anything that calls this on an account you care about.
+Read [DISCLAIMER.md](../../DISCLAIMER.md) before pointing any of this at an account you care about.
+
+## Read this first: the Python API covers profile timelines only
+
+`FacebookScraper` exposes exactly **two** retrieval methods, `fetch_profile()` and `iter_profile()`, and both do the same thing: fetch posts from a **profile timeline**.
+
+There is **no Python method** for the other surfaces. In v0.3.1 these are **CLI-only**:
+
+| Surface | CLI | Python |
+|---|---|---|
+| Profile timeline | `scrape-fb fetch` | `fetch_profile()` / `iter_profile()` |
+| Home news feed | `scrape-fb feed` | *(none — shell out)* |
+| Comments on a post | `scrape-fb comments` | *(none — shell out)* |
+| Single post by URL | `scrape-fb post` | *(none — shell out)* |
+| Search | `scrape-fb search` | *(none — shell out)* |
+| Group feed | `scrape-fb group` | *(none — shell out)* |
+
+If you need feed, comments, post, search, or group from Python, shell out to the CLI and parse its JSON. That is the supported path, not a workaround — the CLI writes the same objects documented in [Output Schema](Output-Schema.md):
+
+Note that `scrape-fb` writes results to a **file**, not to stdout — `--output` names that file, and the progress/summary lines go to stderr. So the shell-out helper points `--output` at a path you control and reads it back:
 
 ```python
-from scraper_for_facebook import (
-    FacebookScraper, Post, Media, LinkAttachment, Status, RetrieveResult,
-    ScraperForFacebookError, LoginRequiredError, SessionExpiredError,
-    ChallengeError, ProfileUnavailableError, SessionClosedError, InvalidIdentifierError,
-)
+import json
+import subprocess
+import tempfile
+from pathlib import Path
+
+NO_RESULTS = 4   # zero results: no file is written and the exit code is 4, not 0
+
+def scrape_fb(*args: str) -> list[dict]:
+    """Run a scrape-fb subcommand and return its parsed results."""
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "results.json"
+        proc = subprocess.run(["scrape-fb", *args, "--format", "json", "--output", str(out)])
+        if proc.returncode == NO_RESULTS:
+            return []
+        if proc.returncode != 0 or not out.exists():
+            raise RuntimeError(f"scrape-fb {args[0]} failed with exit code {proc.returncode}")
+        return json.loads(out.read_text())
+
+comments = scrape_fb("comments", "https://www.facebook.com/permalink.php?story_fbid=123&id=456")
+top_level = [c for c in comments if c["depth"] == 0]
 ```
+
+Exit code `4` means "zero results" and exit code `7` means "partial: `--since` was requested but never confirmed reached" — both are non-zero but neither is a crash, so decide deliberately how your wrapper treats them (the snippet above tolerates `4` and rejects `7`). The full table is in [CLI Reference](CLI-Reference.md).
+
+Check `scrape-fb <command> --help` for the exact flags each subcommand accepts, or `scrape-fb catalog` for a machine-readable description of the whole CLI — every command, its flags, the exit codes, and the output contract. Both run offline.
 
 ## Contents
 
+- [Imports](#imports)
 - [FacebookScraper](#facebookscraper)
-- [login() — two call forms](#login--two-call-forms)
+- [The `with` block requirement](#the-with-block-requirement)
+- [login()](#login)
 - [status()](#status)
 - [fetch_profile()](#fetch_profile)
 - [iter_profile()](#iter_profile)
+- [last_result — RetrieveResult](#last_result--retrieveresult)
 - [Exceptions](#exceptions)
+- [Active mode comes for free](#active-mode-comes-for-free)
 - [Full example](#full-example)
+
+## Imports
+
+Everything in `__all__` is importable from the top-level package:
+
+```python
+from scraper_for_facebook import (
+    FacebookScraper,
+    Post, Media, LinkAttachment,
+    Status, RetrieveResult,
+    ScraperForFacebookError,
+    LoginRequiredError,
+    SessionExpiredError,
+    ChallengeError,
+    ProfileUnavailableError,
+    SessionClosedError,
+    InvalidIdentifierError,
+)
+```
+
+One exception is **not** re-exported at the top level and must be imported from its own module:
+
+```python
+from scraper_for_facebook.errors import ActiveTransportError
+```
 
 ## FacebookScraper
 
@@ -37,55 +104,70 @@ class FacebookScraper:
     ) -> None: ...
 ```
 
-One instance = one persisted login profile + one set of fetch settings. It's a context manager — always use it inside a `with` block:
-
-```python
-with FacebookScraper(profile="default") as fb:
-    posts = fb.fetch_profile("https://www.facebook.com/some.profile", limit=30)
-```
-
-Exiting the `with` block just marks the instance closed (`self._closed = True`); it doesn't hold a browser or session open between calls — each `fetch_profile()` call launches and tears down its own browser session internally. The `with` block exists so the instance can refuse further use once you've said you're done with it (see [`SessionClosedError`](#sessionclosederror)).
-
-### Constructor parameters
+One instance = one persisted login profile + one set of retrieval settings.
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `profile` | `"default"` | Name of the persisted login profile to use. Maps to a directory under this tool's data dir (see [Configuration](Configuration.md#profiles)) unless `profile_dir` overrides it. Passed positionally or by keyword. |
-| `headless` | `True` | Whether the underlying Chromium runs headless. `login()` always forces a headed browser internally regardless of this setting (see below) — this flag only affects `fetch_profile()`/`iter_profile()`/`status()`. Set `False` to watch a fetch run for debugging. |
-| `profile_dir` | `None` | Explicit override for where the login profile lives on disk. `None` means "resolve from `profile` using the normal lookup" (env var, then the platform data directory — see [Configuration](Configuration.md)). Accepts a `str` or a `pathlib.Path`. |
-| `scroll_pause` | `(2.0, 4.0)` | `(min, max)` seconds to randomly wait between scrolls. Silently clamped upward if `min` is below the tool's non-bypassable floor — see [Guardrails in the README](../README.md#guardrails). |
-| `max_scrolls` | `40` | Hard cap on scroll iterations per fetch — the scroll budget. |
+| `profile` | `"default"` | Name of the persisted login profile — the same name `scrape-fb login --profile <name>` creates. Also keys the active-mode token cache. |
+| `headless` | `True` | Run the browser without a visible window. Set `False` when you want to watch what it does, or when a page needs a human glance. |
+| `profile_dir` | `None` | Explicit directory for the browser profile, overriding the name-based lookup. `None` resolves from `profile` — see [Configuration](Configuration.md). |
+| `scroll_pause` | `(2.0, 4.0)` | `(min, max)` seconds to wait between scrolls, sampled randomly in that range. A non-bypassable floor applies; see [Configuration](Configuration.md). |
+| `max_scrolls` | `40` | Hard cap on scrolls in the passive browser path, so a long timeline can't loop forever. |
 
-Two more things worth knowing about the instance:
+`profile` and `profile_dir` travel together into every retrieval call. This matters: active mode keys its token cache by profile **name** while the browser session is keyed by **directory**, so passing a custom `profile_dir` without a matching `profile` name would have the two disagree. The class handles this for you — just don't try to route around it.
 
-- `fb.last_result` starts as `None` and is set to the `RetrieveResult` from the most recent `fetch_profile()` call (see [`fetch_profile()`](#fetch_profile) below) — useful for inspecting `stop_reason`/`since_reached`/scroll counts after the fact without threading extra return values through your own code.
-- Construction itself never touches the network or the filesystem beyond resolving `profile_dir` — no browser is launched until you call `login()`, `status()`, `fetch_profile()`, or `iter_profile()`.
+Attributes you can read:
 
-## login() — two call forms
+- `profile`, `headless`, `scroll_pause`, `max_scrolls` — as constructed.
+- `last_result` — a [`RetrieveResult`](#last_result--retrieveresult), or `None` before the first fetch.
 
-`login()` opens a real, headed browser window and waits for you to log in to Facebook by hand, then persists the session to `profile_dir`. It deliberately behaves differently depending on how you call it:
+## The `with` block requirement
 
-```python
-# Form 1 — instance method, no arguments.
-FacebookScraper(profile="work").login()
-
-# Form 2 — classmethod shim, takes the same keywords the constructor does.
-FacebookScraper.login(profile="work", profile_dir="/custom/path")
-```
-
-Both end up doing the same underlying work (launch headed, wait for you to press Enter once you've logged in, then check for a login wall and persist). The reason both forms exist rather than just one:
-
-- **`FacebookScraper(profile="work").login()`** — you already built an instance with a specific `profile`/`profile_dir`. Calling `login()` on it takes **no arguments**, because those are already fixed by the instance. Passing `profile=` again here would be ambiguous — log into *this* instance's profile, or silently construct and log into a different one? — so it's not accepted at all; passing anything raises a plain `TypeError`.
-- **`FacebookScraper.login(profile=..., profile_dir=...)`** — called on the *class*, with no instance yet. This is a convenience shim: it constructs a throwaway instance from the keywords you pass, then logs that instance in. This is what lets a one-liner like `FacebookScraper.login(profile="work")` work without you first writing `FacebookScraper(profile="work").login()`.
-
-The underlying mechanism (a descriptor the package calls `_HybridLogin`) exists specifically so a custom `profile_dir` you pass to `FacebookScraper.login(profile_dir=...)` is guaranteed to be the *same* directory that instance would then use to log in — a classmethod-only shim can't otherwise guarantee that without you repeating `profile_dir` a second time somewhere and risking it drifting out of sync.
-
-Returns `True` if no login wall (`/login` or `/checkpoint/` redirect) is detected on `facebook.com` afterward, `False` otherwise. It does not raise on a failed login attempt — check the return value.
+`FacebookScraper` is a context manager and is meant to be used inside a `with` block:
 
 ```python
-if not FacebookScraper(profile="default").login():
-    print("Login didn't go through — check the browser window and try again.")
+with FacebookScraper(profile="default") as fb:
+    posts = fb.fetch_profile("https://www.facebook.com/jordan.reyes.90", limit=25)
 ```
+
+Leaving the block marks the instance closed. After that:
+
+- `fetch_profile()` raises `SessionClosedError` immediately.
+- `iter_profile()` raises `SessionClosedError` when it is **advanced**, not when it is called (it's a generator, so the guard can't run at call time).
+
+Which leads to the one real footgun:
+
+```python
+# WRONG — the generator escapes the block and raises on the first next()
+with FacebookScraper() as fb:
+    stream = fb.iter_profile(url)
+for post in stream:      # SessionClosedError
+    print(post.text)
+
+# RIGHT — consume inside the block
+with FacebookScraper() as fb:
+    for post in fb.iter_profile(url):
+        print(post.text)
+```
+
+## login()
+
+`login` has two call forms, on the class and on an instance:
+
+```python
+# Class form — constructs an instance with these keywords, then logs it in.
+FacebookScraper.login()                                    # the "default" profile
+FacebookScraper.login("research")                          # a named profile
+FacebookScraper.login("research", profile_dir="/data/fb")  # explicit directory
+
+# Instance form — takes NO keywords; the profile is already fixed.
+fb = FacebookScraper(profile="research")
+fb.login()
+```
+
+Both return `bool`. The class form accepts `profile` and `profile_dir` because it has to build the session it is about to log into — that's what lets a caller with a custom `profile_dir` log in and fetch against the *same* directory. The instance form deliberately rejects those keywords with a `TypeError` rather than guessing whether you meant its own profile or a different one.
+
+`login()` opens a **real, visible browser window** and waits for you to complete the login interactively. It is not usable headlessly or unattended.
 
 ## status()
 
@@ -93,20 +175,20 @@ if not FacebookScraper(profile="default").login():
 def status(self) -> Status
 ```
 
-Launches a headless browser, navigates to `facebook.com`, and reports which of three states the persisted session is in:
+Reports whether the instance's profile currently has a usable session. `Status` is an enum:
 
-| `Status` member | Meaning |
-|---|---|
-| `Status.LOGGED_IN` | Session is valid; `fetch_profile()`/`iter_profile()` should work. |
-| `Status.EXPIRED` | No profile directory exists yet, or Facebook redirected to a login wall. Fix: call `login()`. |
-| `Status.CHECKPOINT` | Facebook redirected to a security checkpoint. Fix: log in again from a real, headed browser and clear the checkpoint by hand before retrying. |
+| Member | Value | Meaning |
+|---|---|---|
+| `Status.LOGGED_IN` | `"logged_in"` | The session works. |
+| `Status.EXPIRED` | `"expired"` | Facebook is serving a login wall — log in again. |
+| `Status.CHECKPOINT` | `"checkpoint"` | The account is flagged with a security checkpoint. Stop and resolve it in a normal browser. |
 
 ```python
 from scraper_for_facebook import FacebookScraper, Status
 
-fb = FacebookScraper(profile="default")
-if fb.status() is not Status.LOGGED_IN:
-    fb.login()
+with FacebookScraper() as fb:
+    if fb.status() is not Status.LOGGED_IN:
+        raise SystemExit("session is not usable; run scrape-fb login")
 ```
 
 ## fetch_profile()
@@ -123,49 +205,29 @@ def fetch_profile(
 ) -> list[Post]
 ```
 
-Runs one full fetch (launch browser → navigate → scroll → capture GraphQL XHRs → parse → filter/sort → resolve truncated text) and returns the resulting posts as a plain `list[Post]`, already sorted (pinned posts first, then newest-first) and already limited/windowed. Must be called on an instance that hasn't exited its `with` block.
+Fetches a profile timeline and returns a list of `Post` objects, newest first (pinned posts first, then undated posts last).
 
-**Parameters:**
+| Parameter | Meaning |
+|---|---|
+| `url` | Profile URL, username, or numeric id. Normalized internally; an unusable identifier raises `InvalidIdentifierError`. |
+| `limit` | Stop after this many posts. `None` means "until the feed is exhausted or a cap trips". |
+| `since` / `until` | Date window, as `datetime.date` or a strict `"YYYY-MM-DD"` string. A malformed string raises `ValueError`. Pinned and undated posts bypass the window (see [Output Schema](Output-Schema.md)). |
+| `raw` | Attach the raw captured story node to each `Post.raw`. PII-heavy — off by default. |
 
-- `url` — a profile URL (e.g. `https://www.facebook.com/some.profile`) or bare username/`profile.php?id=...` form. Validated and normalized before use; an unparseable value raises [`InvalidIdentifierError`](#invalididentifiererror) immediately, before any browser is launched.
-- `limit` — maximum number of posts to return. `None` means no count limit (bounded only by `max_scrolls` and feed exhaustion).
-- `since` / `until` — inclusive date bounds, either an ISO `"YYYY-MM-DD"` string or a `datetime.date`. A malformed string raises `ValueError` (strict `date.fromisoformat` parsing) — this is a plain `ValueError`, not one of this package's typed errors. `since` is **best-effort**: see the caveat in the [README](../README.md#limitations-v1) and check `fb.last_result.since_reached` afterward if you need to know whether the bound was actually confirmed crossed.
-- `raw` — when `True`, each `Post` also carries its raw captured story node for debugging. See [Output Schema](Output-Schema.md) for exactly what that includes and its redaction behavior.
-
-For the full field-by-field shape of the returned `Post`/`Media`/`LinkAttachment` objects, see [Output Schema](Output-Schema.md) — this page only covers the method signatures.
-
-### Full error-handling example
+Side effect: sets `self.last_result` to the full [`RetrieveResult`](#last_result--retrieveresult) for this call.
 
 ```python
 from datetime import date
-from scraper_for_facebook import FacebookScraper
-from scraper_for_facebook.errors import (
-    LoginRequiredError, SessionExpiredError, ChallengeError,
-    ProfileUnavailableError, SessionClosedError, InvalidIdentifierError,
-)
 
-with FacebookScraper(profile="default") as fb:
-    try:
-        posts = fb.fetch_profile(
-            "https://www.facebook.com/some.profile",
-            limit=30,
-            since=date(2026, 1, 1),
-        )
-    except InvalidIdentifierError:
-        print("That doesn't look like a valid Facebook profile URL.")
-    except LoginRequiredError:
-        print("No saved session for this profile yet — run login() first.")
-    except SessionExpiredError:
-        print("Session expired — log in again.")
-    except ChallengeError:
-        print("Account is checkpointed. Clear it in a real browser before retrying.")
-    except ProfileUnavailableError:
-        print("Target profile is memorialized, blocked, restricted, or doesn't exist.")
-    except SessionClosedError:
-        print("Called after the `with` block exited — this shouldn't happen here.")
-    else:
-        print(f"Got {len(posts)} posts; stopped because {fb.last_result.stop_reason}")
+with FacebookScraper() as fb:
+    posts = fb.fetch_profile("jordan.reyes.90", since=date(2026, 1, 1), limit=100)
+
+for post in posts:
+    stamp = post.created_at.isoformat() if post.created_at else "undated"
+    print(f"{stamp}  {post.reaction_count or 0:>5} reactions  {post.text[:60]!r}")
 ```
+
+`Post`, `Media`, and `LinkAttachment` are plain dataclasses. Access fields as attributes (`post.created_at` is a real `datetime | None`), or call `post.to_dict()` to get the JSON-shaped dict documented in [Output Schema](Output-Schema.md) — `to_dict()` is where `datetime` becomes an ISO-8601 `Z` string.
 
 ## iter_profile()
 
@@ -181,110 +243,185 @@ def iter_profile(
 ) -> Iterator[Post]
 ```
 
-Same parameters and same underlying fetch as `fetch_profile()` — this is the generator form. Two things about it are easy to get wrong:
+The generator form of `fetch_profile()`, with identical parameters.
 
-**It must be consumed inside the owning `with` block.** Advancing it (the first `next()`, e.g. by starting a `for` loop over it) after the block has exited raises [`SessionClosedError`](#sessionclosederror), rather than silently touching an already-closed session. Because it's a generator, this check can't run at call time — calling `iter_profile(...)` itself never raises, even on an already-closed instance; only actually advancing it does:
+Be clear about what this does and does not buy you: **it is not lazy retrieval.** The full scroll-capture-parse cycle happens before the first post is yielded, exactly as in `fetch_profile()`; the posts are simply handed to you one at a time afterwards. Breaking out of the loop early does not reduce browser work that has already happened. Use it when you want to start processing without materializing your own list, not as a way to fetch less.
+
+It must be consumed inside the owning `with` block — see [The `with` block requirement](#the-with-block-requirement).
 
 ```python
-with FacebookScraper(profile="default") as fb:
-    gen = fb.iter_profile("https://www.facebook.com/some.profile", limit=10)
-# `with` block has exited here — `gen` was never advanced.
-next(gen)  # raises SessionClosedError now, on first advance.
+with FacebookScraper() as fb:
+    for post in fb.iter_profile("jordan.reyes.90", limit=50):
+        if post.type == "shared" and post.shared_post is not None:
+            print(f"{post.author_name} shared {post.shared_post.author_name}")
 ```
 
-**It does NOT stream incrementally.** This is the point most people get wrong: `iter_profile()` still fully scrolls, captures every GraphQL response, and parses all of it *before yielding the first post* — exactly like `fetch_profile()`, just handing results back one at a time afterward instead of all at once. Breaking out of your loop early does not reduce browser work that's already been done, because that work happens before the loop's first iteration, not during it. If you want early-exit to actually save time, there isn't currently a way to do that — use `fetch_profile()` with a smaller `limit` instead.
+## last_result — RetrieveResult
+
+`fetch_profile()` returns only the posts. Everything else about the run lands on `scraper.last_result`, a `RetrieveResult` dataclass:
+
+| Attribute | Type | Meaning |
+|---|---|---|
+| `posts` | `list[Post]` | The same list `fetch_profile()` returned. |
+| `stop_reason` | `str` | Why retrieval stopped (table below). |
+| `since_reached` | `bool` | Whether a requested `since` was confirmed crossed (or was moot). `False` means your window may be incomplete. |
+| `oldest_seen` | `datetime \| None` | Oldest post timestamp observed during the run. |
+| `newest_seen` | `datetime \| None` | Newest post timestamp observed during the run. |
+| `scrolls_performed` | `int` | How many scrolls the browser path did. `0` on a pure active-mode run. |
+| `transport` | `str` | `"active"` or `"passive"` — which transport actually produced these posts. |
+
+`stop_reason` values:
+
+| Value | Meaning |
+|---|---|
+| `"feed_exhausted"` | Reached the end of the available feed. The clean finish. |
+| `"limit_reached"` | Your `limit` was satisfied. |
+| `"since_crossed"` | Retrieval passed the `since` boundary, so everything you asked for is present. |
+| `"max_scrolls"` | The `max_scrolls` cap tripped. There is probably more; raise the cap. |
+| `"max_pages"` | The active-mode pagination cap tripped. Same implication. |
+| `"feed_stalled"` | Scrolling stopped producing new posts before the feed ended. |
+| `"unknown_error"` | Retrieval raised before it could record a reason. Treat the result as partial. |
+
+Anything other than `feed_exhausted`, `limit_reached`, or `since_crossed` means your result is truncated — check it before drawing conclusions from a count:
 
 ```python
-with FacebookScraper(profile="default") as fb:
-    for post in fb.iter_profile("https://www.facebook.com/some.profile", limit=30):
-        print(post.id, post.created_at)
-        # By the time this loop starts, the full scroll/capture/parse pass has
-        # already run — `break` here doesn't undo or skip any of that work.
+with FacebookScraper(max_scrolls=80) as fb:
+    posts = fb.fetch_profile("jordan.reyes.90", since="2025-01-01")
+
+result = fb.last_result
+print(f"{len(posts)} posts via {result.transport}, stopped: {result.stop_reason}")
+if not result.since_reached:
+    print("warning: never confirmed reaching 2025-01-01 — the window is incomplete")
 ```
 
 ## Exceptions
 
-All exceptions live in `scraper_for_facebook.errors` and are also re-exported from the top-level package. All of them ultimately subclass `ScraperForFacebookError`, so `except ScraperForFacebookError:` catches anything this package raises on purpose.
+Every error this package raises inherits from `ScraperForFacebookError`, so a single `except` is a safe outer net:
 
 ```
-ScraperForFacebookError (base)
-├── LoginRequiredError
-├── SessionExpiredError
-├── ChallengeError
-├── ProfileUnavailableError
-├── SessionClosedError
-└── InvalidIdentifierError (also subclasses ValueError)
+ScraperForFacebookError
+├── LoginRequiredError        no persisted session for this profile
+├── SessionExpiredError       a session existed but Facebook is showing a login wall
+├── ActiveTransportError      an active HTTP GraphQL request failed (recoverable)
+├── ChallengeError            Meta flagged the account with a security checkpoint
+├── ProfileUnavailableError   target is memorialized, blocked, restricted, or absent
+├── SessionClosedError        the instance's `with` block already exited
+└── InvalidIdentifierError    the target identifier/URL failed validation
 ```
 
-#### `ScraperForFacebookError`
+Notes that matter when you branch on these:
 
-Base class for every error this package raises on purpose. Catch this if you just want to distinguish "this package failed in a known way" from an unexpected exception.
+- **`LoginRequiredError` vs `SessionExpiredError`.** The first means you never logged in on this profile; the second means the session was valid once and has since died. Both are fixed by `scrape-fb login --profile <name>`, but only the second indicates something changed underneath you.
+- **`ActiveTransportError` is not an auth error.** A rotated GraphQL `doc_id`, a transport hiccup, or a non-200 all land here, and the correct response is to retry through the browser transport — which the default mode already does for you automatically. You will normally never see it. Import it from `scraper_for_facebook.errors`, not the package root.
+- **`ChallengeError` is never retried automatically.** Hammering a checkpointed account raises ban risk. Stop, open Facebook in a normal browser, clear the checkpoint, then log in again.
+- **`ProfileUnavailableError` is a confirmed "nothing here"**, deliberately distinct from a zero-post result — the latter could be parser drift, this one could not.
+- **`InvalidIdentifierError` is also a `ValueError`**, so existing `except ValueError` handlers catch it.
 
-#### `LoginRequiredError`
+```python
+from scraper_for_facebook import (
+    FacebookScraper, ChallengeError, LoginRequiredError,
+    ProfileUnavailableError, SessionExpiredError, ScraperForFacebookError,
+)
 
-No persisted, logged-in session exists yet for this profile — `profile_dir` doesn't exist on disk. **Fix:** call `login()` (or `scrape-fb login --profile <name>` from the CLI).
+try:
+    with FacebookScraper(profile="research") as fb:
+        posts = fb.fetch_profile("jordan.reyes.90", limit=50)
+except (LoginRequiredError, SessionExpiredError):
+    raise SystemExit("run: scrape-fb login --profile research")
+except ChallengeError:
+    raise SystemExit("account checkpointed — resolve it in a normal browser, do not retry")
+except ProfileUnavailableError:
+    posts = []          # confirmed empty, not a parsing failure
+except ScraperForFacebookError as exc:
+    raise SystemExit(f"scrape failed: {exc}")
+```
 
-#### `SessionExpiredError`
+## Active mode comes for free
 
-A persisted session exists, but Facebook showed a login wall when this fetch tried to use it. Distinct from `LoginRequiredError`: this means the session *was* valid at some point and has since expired, rather than never having been created. **Fix:** call `login()` again.
+`fetch_profile()` and `iter_profile()` call the same retrieval layer the CLI does, so the library gets active mode with no extra configuration.
 
-#### `ChallengeError`
+Retrieval is **active-first with a passive fallback**: it tries the fast HTTP GraphQL transport, and if that fails with an `ActiveTransportError` it retries the same target through the real browser. You don't opt in, and you don't handle the fallback — it happens inside the call. The fallback is never silent: it prints a one-line notice to stderr, and `last_result.transport` tells you which path produced the posts you got.
 
-Facebook has flagged the account with a security checkpoint mid-session. This is never retried automatically — hammering a checkpointed account raises ban risk. **Fix:** log in again from a real, headed browser and manually clear the checkpoint before retrying.
+```python
+with FacebookScraper() as fb:
+    posts = fb.fetch_profile("jordan.reyes.90", limit=30)
 
-#### `ProfileUnavailableError`
+if fb.last_result.transport == "passive":
+    print("fell back to the browser — slower, but the posts are the same shape")
+```
 
-The target profile is memorialized, blocked, restricted, or doesn't exist. This is distinct from a fetch that just happens to return zero posts (which could be parser drift) — this is a confirmed "there's nothing to fetch here."
+The output is identical either way: the parser is transport-agnostic, so a `Post` from active mode and a `Post` from the browser path are indistinguishable. The only visible differences are speed and `scrolls_performed` (`0` on an active run).
 
-#### `SessionClosedError`
-
-Either `fetch_profile()`/`iter_profile()` was called on an instance whose `with` block has already exited, or an `iter_profile()` generator was advanced after that point. **Fix:** don't hold onto a `FacebookScraper` instance (or a generator from it) past its `with` block.
-
-#### `InvalidIdentifierError`
-
-The `url` you passed to `fetch_profile()`/`iter_profile()` failed validation — wrong scheme, no profile path, malformed `profile.php` query string, etc. Also subclasses `ValueError`, so existing `except ValueError:` handling around URL parsing still catches it. Raised immediately, before any browser is launched.
+The Python API always uses the default `"auto"` mode. Forcing active-only or passive-only is a CLI-level choice; it is not exposed as a `FacebookScraper` parameter in v0.3.1.
 
 ## Full example
 
+A complete script: verify the session, fetch a windowed timeline, check for truncation, and report what happened.
+
 ```python
+#!/usr/bin/env python3
+"""Fetch one profile's 2026 posts and summarize the run."""
+
 from datetime import date
 
-from scraper_for_facebook import FacebookScraper, Status
-from scraper_for_facebook.errors import (
-    LoginRequiredError, SessionExpiredError, ChallengeError,
-    ProfileUnavailableError, InvalidIdentifierError,
+from scraper_for_facebook import (
+    ChallengeError,
+    FacebookScraper,
+    LoginRequiredError,
+    ProfileUnavailableError,
+    ScraperForFacebookError,
+    SessionExpiredError,
+    Status,
 )
 
-PROFILE = "default"
-TARGET = "https://www.facebook.com/some.profile"
+TARGET = "https://www.facebook.com/jordan.reyes.90"
 
-fb = FacebookScraper(profile=PROFILE)
 
-if fb.status() is not Status.LOGGED_IN:
-    print("Not logged in yet — opening a browser window...")
-    if not fb.login():
-        raise SystemExit("Login failed; check the browser window and try again.")
-
-with FacebookScraper(profile=PROFILE) as fb:
+def main() -> int:
     try:
-        posts = fb.fetch_profile(TARGET, limit=50, since=date(2026, 1, 1))
-    except InvalidIdentifierError:
-        raise SystemExit(f"Not a valid profile URL: {TARGET}")
-    except LoginRequiredError:
-        raise SystemExit("No saved session — call login() first.")
-    except SessionExpiredError:
-        raise SystemExit("Session expired — log in again.")
-    except ChallengeError:
-        raise SystemExit("Account is checkpointed — clear it in a real browser first.")
-    except ProfileUnavailableError:
-        raise SystemExit(f"Profile unavailable: {TARGET}")
+        with FacebookScraper(profile="default", headless=True, max_scrolls=60) as fb:
+            if fb.status() is not Status.LOGGED_IN:
+                print("session unusable — run: scrape-fb login")
+                return 1
 
-    result = fb.last_result
-    print(f"Fetched {len(posts)} posts ({result.stop_reason}, since_reached={result.since_reached})")
-    for post in posts:
-        print(post.created_at, post.author_name, (post.text or "")[:60])
+            posts = fb.fetch_profile(TARGET, since=date(2026, 1, 1), limit=200)
+            result = fb.last_result
+
+    except (LoginRequiredError, SessionExpiredError):
+        print("no usable session — run: scrape-fb login")
+        return 1
+    except ChallengeError:
+        print("account checkpointed — resolve it in a browser before retrying")
+        return 1
+    except ProfileUnavailableError:
+        print(f"{TARGET} is unavailable (memorialized, blocked, restricted, or gone)")
+        return 0
+    except ScraperForFacebookError as exc:
+        print(f"scrape failed: {exc}")
+        return 1
+
+    print(f"{len(posts)} posts via {result.transport} transport")
+    print(f"stop reason: {result.stop_reason}  (scrolls: {result.scrolls_performed})")
+    if not result.since_reached:
+        print("warning: the 2026-01-01 boundary was never confirmed — window incomplete")
+
+    dated = [p for p in posts if p.created_at is not None]
+    print(f"{len(posts) - len(dated)} posts had no locatable date")
+
+    unresolved = [p for p in posts if p.text_truncated and not p.text_resolved]
+    if unresolved:
+        print(f"{len(unresolved)} posts still have truncated text")
+
+    for post in sorted(dated, key=lambda p: p.reaction_count or 0, reverse=True)[:5]:
+        print(f"  {post.created_at:%Y-%m-%d}  {post.reaction_count or 0:>5}  {post.text[:60]!r}")
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 ```
 
-Note the two separate `FacebookScraper(profile=PROFILE)` instances above are deliberate: `status()`/`login()` don't need to happen inside a `with` block (they don't return anything that depends on the session staying open), while `fetch_profile()`/`iter_profile()` should always be scoped to one.
+---
 
-See [Output Schema](Output-Schema.md) for what `post.author_name`, `post.created_at`, etc. actually contain, and [Configuration](Configuration.md) for how `profile`/`profile_dir` resolution and scroll-pacing tuning work in more depth.
+**Next:** [Chaining Recipes](Chaining-Recipes.md) for combining the CLI surfaces this API doesn't cover, and [FAQ & Troubleshooting](FAQ-and-Troubleshooting.md) when a run stops early or returns nothing. Back to the [wiki index](README.md).

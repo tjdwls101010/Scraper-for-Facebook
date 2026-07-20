@@ -1,107 +1,103 @@
 # Quick Start
 
-This page walks through the whole flow once, slowly, with real terminal output at each step. If you just want the condensed version, see the [main README](../README.md#quick-start). If you haven't installed the tool yet, start with [Installation](Installation.md) instead — this page assumes `scrape-fb` is already on your PATH.
+Zero to a real result in five steps, with the one thing that trips up almost every first-time user stated up front — for anyone who has just installed `scrape-fb` and wants working output.
 
-Five steps: `setup` → `login` → `status`/`doctor` → `fetch` → look at the output.
+## Read this before anything else: results go to a file
 
-## 1. One-time setup
+**Every retrieval command (`fetch`, `feed`, `post`, `comments`, `search`, `group`) writes its results to a JSON file and prints only a one-line summary to stderr. Nothing useful goes to stdout.**
 
-`scrape-fb` drives a real Chromium browser under the hood (via Playwright), and that browser binary doesn't ship inside the Python package — it has to be downloaded separately. `scrape-fb setup` does that download, into a cache directory this tool owns exclusively (never a browser install shared with any other Playwright-based tool on your machine):
+This is the single most common mistake. Piping a retrieval command into `jq`, `grep`, or `head` gets you nothing, because there is nothing on stdout to pipe. The data is in a file.
 
-```bash
-$ scrape-fb setup
-```
-
-```
-Browser provisioned.
-```
-
-This can take a minute or two the first time (it's downloading a Chromium build). You only need to run it once per machine — after that, every `scrape-fb` command reuses the same cached browser. If you ever suspect the browser install got corrupted, `scrape-fb setup --force` reinstalls it.
-
-## 2. Log in
+So the habit to build from your very first command is:
 
 ```bash
-$ scrape-fb login
+scrape-fb <command> ... --output ./result.json   # 1. run it, choose the path
+cat ./result.json                                # 2. then open the file
 ```
 
-```
-A browser window should now be open. Log in to Facebook there, then press Enter here to continue...
+Without `--output`, results still land in a file — a timestamped one under the platform data directory (`~/Library/Application Support/scraper-for-facebook/output/` on macOS), whose path is printed in the stderr summary. That default is deliberate: captured posts contain other people's personal data, so they never get written into your current directory or a git-tracked path by accident. But you will have a much better time if you name the path yourself.
+
+## 1. Install and provision
+
+```bash
+uv tool install scraper-for-facebook   # or: pipx install scraper-for-facebook
+scrape-fb setup
 ```
 
-At this point a **real, visible Chromium window** opens on your screen. This isn't a headless trick — you log in exactly like you would in any browser: type your email/password, clear any 2FA prompt, solve a captcha if Facebook throws one at you. Nothing is automated about this step on purpose. Once you're looking at your actual timeline in that window, go back to the terminal and press Enter.
+`setup` downloads Chromium into this tool's own isolated cache. Full detail, including why `pip install` into a shared virtualenv is a bad idea, is in [Installation](Installation.md).
 
-`scrape-fb` then checks the page it's currently on: if it doesn't look like a login wall or checkpoint page anymore, it considers you logged in and saves that session:
+> **Use a throwaway Facebook account.** Automating a Meta account violates its Terms of Service and risks a permanent ban. Never point this at an account you care about. See [../../DISCLAIMER.md](../../DISCLAIMER.md).
+
+## 2. Log in, by hand, once
+
+```bash
+scrape-fb login
+```
+
+A real browser window opens. Log in to Facebook in it yourself — username, password, 2FA, whatever your account needs. There is no credential injection here: the tool never sees or stores your password, it just keeps the browser profile you produced.
+
+Completion is **auto-detected**. Once the session is genuinely logged in, the command finishes on its own — you do not press a key or confirm anything. It waits up to 300 seconds by default; `--timeout-seconds` changes that.
 
 ```
+A browser window is open. Log in to Facebook there — this will continue automatically once you are (waiting up to 300s).
 Logged in. Profile saved at /Users/you/Library/Application Support/scraper-for-facebook/profiles/default
 ```
 
-What actually got saved there is your session — cookies and local storage, `chmod 0700` so only your user account can read it. There's no password stored, but anyone who can read that directory can act as your logged-in Facebook session just as well as you can. Treat it accordingly: don't back it up to iCloud/Dropbox/Time Machine, don't commit it, and if the machine is ever lost or compromised, revoke the session from facebook.com itself (Settings → Security → Where You're Logged In), not just by deleting the folder.
-
-**Use a dedicated or throwaway Facebook account for this, not your main one.** Automating any Facebook account — including "automating" by just reading what a real logged-in browser loads — is against Facebook's Terms of Service, and enforcement shows up as checkpoints or account bans. Read [../DISCLAIMER.md](../DISCLAIMER.md) in full before you go further; this isn't boilerplate legal filler, it covers real account and data risk.
-
-If you mistype something or the browser closes before you finish, just run `scrape-fb login` again — it's idempotent.
-
-## 3. Check your session: `status` vs `doctor`
-
-Two different commands answer two different questions. Reach for the fast one first.
-
-**`scrape-fb status`** — "is my saved session still good?" It reuses your saved profile headlessly (no visible window), loads facebook.com, and looks at where you land: your timeline (logged in), a login page (session expired), or a checkpoint page (account flagged). It does not check whether post-scraping actually works.
+## 3. Verify the session
 
 ```bash
-$ scrape-fb status
+scrape-fb status
+# status: logged_in (logged in 42s ago)
 ```
 
-```
-status: logged_in (logged in 640s ago)
-```
+`status` is scriptable through its exit code, which is how you should check it in any automation:
 
-Add `--json` if you want to consume this from a script:
+| Exit | Meaning | What to do |
+|---|---|---|
+| **0** | Logged in and ready | Go fetch something |
+| **2** | Login required or session expired | Run `scrape-fb login` again |
+| **3** | Account checkpoint — Meta flagged the session | **Stop.** Log in through a real browser and clear it. Retrying makes a temporary block permanent. |
+
+`scrape-fb status --json` prints `{"status": "logged_in", "session_age_seconds": 42.0}` to stdout for scripts.
+
+If `status` looks fine but fetches still fail, run `scrape-fb doctor` — it launches the browser, navigates, and confirms a GraphQL response actually round-trips:
 
 ```bash
-$ scrape-fb status --json
+scrape-fb doctor
+# OK - captured 4 graphql response(s)
 ```
 
-```json
-{"status": "logged_in", "session_age_seconds": 640.2}
+```mermaid
+flowchart LR
+    A[scrape-fb setup] --> B[scrape-fb login]
+    B --> C{scrape-fb status}
+    C -->|exit 0| D[fetch / feed / comments]
+    C -->|exit 2| B
+    C -->|exit 3| E["checkpoint — clear it<br/>in a real browser, do not retry"]
+    D --> F["read the JSON file<br/>named by --output"]
 ```
 
-**`scrape-fb doctor`** — "does a real capture round-trip end-to-end?" This is the heavier check: it launches the browser, navigates to facebook.com, and confirms that at least one GraphQL response was actually captured off the wire — the exact mechanism `fetch` depends on. `status` can say `logged_in` while `doctor` still fails, if e.g. Facebook changed something about how its GraphQL traffic looks, or your network is blocking XHRs.
+## 4. Your first retrieval: `fetch`
+
+A profile's timeline, most recent first:
 
 ```bash
-$ scrape-fb doctor
+scrape-fb fetch https://www.facebook.com/some.profile --limit 5 --output ./posts.json
 ```
 
+The summary on stderr:
+
 ```
-OK - captured 14 graphql response(s)
+5 posts, range 2026-06-28..2026-07-18, stop reason: limit_reached. Saved to posts.json
 ```
 
-Use `status` for a quick "am I still logged in" check before a fetch. Use `doctor` when something's not working and you want to know whether the problem is your login, or the capture pipeline itself.
+Read that line carefully — it always states how many results, the observed date range, and **why the run stopped**. `limit_reached` means you got exactly what you asked for. `feed_exhausted` means there was genuinely nothing more. `max_pages` or `feed_stalled` means the run hit a budget, so there may be more you didn't get.
 
-## 4. Your first fetch
-
-Now the actual scrape. Pick a profile you're logged in and able to view — your own timeline, a friend's, anyone whose posts your logged-in account can already see (this tool never bypasses Facebook's own visibility rules; it only sees what your account sees).
+Now open the file — this is where the data actually is:
 
 ```bash
-$ scrape-fb fetch https://www.facebook.com/some.profile --limit 30
+cat ./posts.json
 ```
-
-While this runs, a **headless** browser (no visible window, unless you pass `--headed`) scrolls the profile's timeline, pausing between scrolls, reading the same GraphQL responses your browser would normally just render. When it's done, you'll see a one-line summary on stderr:
-
-```
-30 posts, range 2026-03-12..2026-07-04, stop reason: limit_reached. Saved to /Users/you/Library/Application Support/scraper-for-facebook/output/some-profile-20260705T031813123456Z.json
-```
-
-That summary always tells you three things, so a partial run is never mistaken for a complete one:
-- **how many posts** were retrieved,
-- the **date range** actually observed (oldest..newest), and
-- the **stop reason** — why scrolling stopped (`limit_reached` here, because `--limit 30` was hit; other reasons include `feed_exhausted`, `feed_stalled`, or `max_scrolls` — see [CLI Reference](CLI-Reference.md#exit-codes) for the full list and what each means for your exit code).
-
-Notice where the file landed: **not** your current directory, and not stdout. By default, output goes under this tool's own per-user data directory (via [`platformdirs`](https://pypi.org/project/platformdirs/) — on macOS, `~/Library/Application Support/scraper-for-facebook/output/`), named `<profile>-<UTC timestamp>.json`. That's deliberate, not an accident of implementation: captured posts contain other people's names, text, and signed media URLs (real third-party personal data — see [../DISCLAIMER.md](../DISCLAIMER.md) §3–4), and a default that lands quietly in your current directory is a default that eventually gets `git add`ed by accident. Pass `--output some/path.json` if you want it somewhere specific.
-
-## 5. A quick look at the output
-
-Open the file and you'll see a JSON array of post objects (or one JSON object per line, if you used `--format ndjson`):
 
 ```json
 [
@@ -113,9 +109,9 @@ Open the file and you'll see a JSON array of post objects (or one JSON object pe
     "author_name": "Jane Example",
     "author_url": "https://www.facebook.com/some.profile",
     "author_id": "100000000000001",
-    "created_at": "2026-06-30T09:15:36Z",
+    "created_at": "2026-07-18T09:15:36Z",
     "edited_at": null,
-    "text": "Full post body, truncation-resolved if it was ever cut short...",
+    "text": "Back from two weeks offline. Photos to follow once I've sorted through them.",
     "text_truncated": false,
     "text_resolved": false,
     "media": [],
@@ -124,16 +120,81 @@ Open the file and you'll see a JSON array of post objects (or one JSON object pe
     "comment_count": 32,
     "share_count": 14,
     "shared_post": null,
-    "captured_at": "2026-07-05T03:18:13.385206Z"
+    "source": "timeline",
+    "captured_at": "2026-07-20T03:18:13.385206Z"
   }
 ]
 ```
 
-This page won't repeat the full field list — see [Output Schema](Output-Schema.md) for what every field means, including the `media`, `links`, and `shared_post` shapes for posts that attach photos, link previews, or quote another post.
+Every field is explained in [Output Schema](Output-Schema.md), or run `scrape-fb schema` for the same reference offline.
 
-## What's next
+## 5. Two more: `feed` and `comments`
 
-- **[CLI Reference](CLI-Reference.md)** — every flag on every subcommand, the full exit-code table, and what each stop reason implies.
-- **[Python API Reference](Python-API-Reference.md)** — use `FacebookScraper` directly from Python instead of shelling out to the CLI.
-- **[Configuration](Configuration.md)** — multiple login profiles, environment variables, and tuning scroll pacing (`--scroll-pause`, `--max-scrolls`) without tripping the non-bypassable floor.
-- If something looks wrong or a fetch returns 0 posts, check [FAQ & Troubleshooting](FAQ-and-Troubleshooting.md) before filing an issue.
+**Your own home news feed:**
+
+```bash
+scrape-fb feed --limit 10 --output ./feed.json
+```
+
+```
+10 posts, range 2026-07-19..2026-07-20, stop reason: limit_reached. Saved to feed.json
+```
+
+Posts from `feed` carry `"source": "newsfeed"` instead of `"timeline"`, so once you start combining outputs from several commands into one pile, each post can still say where it came from.
+
+**A post's comments** — note this takes a post permalink, which is exactly the `url` field from the JSON above:
+
+```bash
+scrape-fb comments https://www.facebook.com/some.profile/posts/pfbid02example \
+  --sort recent --limit 20 --output ./comments.json
+```
+
+```
+18 comments (0 replies), stop reason: feed_exhausted. Saved to comments.json
+```
+
+```json
+[
+  {
+    "id": "Y29tbWVudDoxMjM0NTY3ODkwMTIzNDU6OTg3",
+    "post_id": "ZmVlZGJhY2s6MTIzNDU2Nzg5MDEyMzQ1",
+    "author_name": "Alex Rivera",
+    "author_url": "https://www.facebook.com/alex.rivera.example",
+    "author_id": "100000000000002",
+    "text": "Welcome back! Looking forward to the photos.",
+    "created_at": "2026-07-18T10:02:11Z",
+    "depth": 0,
+    "parent_id": null,
+    "reaction_count": 4,
+    "reply_count": 1,
+    "captured_at": "2026-07-20T03:21:44.120883Z"
+  }
+]
+```
+
+Add `--replies` to also fetch depth-1 replies. It costs one extra request per comment that has any, so pair it with a `--limit` — a 100-comment post is a lot of requests, and requests are what get accounts flagged.
+
+Note that `comments` needs a **real post permalink**. Reel URLs do not work: a reel page embeds no story id for the tool to resolve.
+
+## When something goes wrong
+
+The exit code tells you which kind of problem you have — check it with `echo $?`:
+
+| Exit | Meaning |
+|---|---|
+| 0 | Success |
+| 2 | Login required — run `scrape-fb login` |
+| 3 | Checkpoint — clear it in a real browser, do **not** retry |
+| 4 | Zero results — either genuinely nothing there, or Facebook changed shape. Probe with `scrape-fb feed --limit 3` to tell the two apart. |
+| 5 | Target unavailable (memorialized, blocked, restricted, nonexistent) — a definite answer, don't retry variations |
+| 7 | Partial: `--since` was requested but not confirmed reached |
+
+The full list, plus what to do about each, is in [FAQ and Troubleshooting](FAQ-and-Troubleshooting.md).
+
+## Where to go next
+
+You now have three files of results. The interesting part is that they compose: every post carries `url`, `author_url`, and `author_id`, so one command's output is the next command's input — a post's `url` feeds `comments`, a commenter's `author_url` feeds `fetch`. The tool never crawls on its own; chaining is deliberately your job.
+
+---
+
+**Next:** [Chaining Recipes](Chaining-Recipes.md) for multi-command workflows built on exactly that, then [CLI Reference](CLI-Reference.md) for every flag and [Output Schema](Output-Schema.md) for every field. Back to the [wiki index](README.md).

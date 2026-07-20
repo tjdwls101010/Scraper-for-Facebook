@@ -1,114 +1,189 @@
 # CLI Reference
 
-The complete, flag-by-flag reference for `scrape-fb`. The [README](../README.md) has a condensed version of this; this page is the authoritative one — every default and every exit code here is read directly out of `build_parser()` and `_cmd_fetch` in `src/scraper_for_facebook/cli.py`, not copied from memory.
+The authoritative flag-by-flag reference for every `scrape-fb` command — for anyone driving the tool from a shell, a script, or an agent.
 
-If you haven't run either of these yet, do them in this order first: [Installation](Installation.md), then `scrape-fb setup`, then `scrape-fb login`.
+## Read this first: `catalog` is the real authority
 
-## Global
+This page describes **v0.3.1**. The installed CLI can describe *itself*:
 
+```bash
+scrape-fb catalog          # human/agent-readable text
+scrape-fb catalog --json   # the same content, machine-readable
 ```
-scrape-fb --version
+
+`catalog` is **derived, never authored**: its command list and flag tables are introspected from the live `argparse` parser, its object schemas come from the same functions `scrape-fb schema` uses, and its exit codes come from `exits.DESCRIPTIONS`. It therefore cannot describe a command that doesn't exist or miss one that does.
+
+**If this page and `scrape-fb catalog` ever disagree, `catalog` is right for the version you actually have installed.** Use this page for the prose, the examples, and the "why"; use `catalog` for ground truth.
+
+## The output contract (the single most common mistake)
+
+Every retrieval command (`fetch`, `feed`, `post`, `comments`, `search`, `group`) behaves the same way:
+
+- **Results are written to a JSON file.** Only a one-line summary goes to **stderr**, and **nothing useful goes to stdout**. Run the command, then read the file.
+- Without `--output`, the file lands under the platform data directory with a timestamped name — never the current directory, because captured posts contain third-party personal data.
+- `--format json` writes one array; `--format ndjson` writes one object per line.
+- `fetch`/`feed`/`post`/`search`/`group` emit `Post` objects; `comments` emits `Comment` objects; `search --type people|pages|groups` emits `Entity` objects instead of Posts.
+
+Piping a retrieval command into `jq` gets you nothing. Read the path printed on stderr instead.
+
+## The two transports
+
+```mermaid
+flowchart TD
+    A[scrape-fb retrieval command] --> B{Which transport?}
+    B -->|ACTIVE, the default| C[HTTP POST to /api/graphql/<br/>paginates by cursor<br/>fast, precise dates<br/>floor: 1.0s between requests]
+    B -->|PASSIVE| D[Drives Chromium and scrolls<br/>observes GraphQL responses<br/>floor: 0.5s between scrolls]
+    C -->|doc_id rotated, active failed| E{Fallback supported?}
+    E -->|fetch only, --mode auto| D
+    E -->|feed, post, comments, search, group| F[Fails: these are ACTIVE-ONLY]
 ```
 
-Prints `scrape-fb <version>` and exits 0. This is the only thing you can do without a subcommand — `scrape-fb` with no arguments (or an unrecognized one) is a usage error (see [Exit codes](#exit-codes) below).
+| Command | ACTIVE | PASSIVE | Fallback |
+|---|---|---|---|
+| `fetch` | yes | yes | active → passive, via `--mode auto` (the default) |
+| `feed` | yes | no | none — active-only |
+| `post` | yes | no | none — active-only |
+| `comments` | yes | no | none — active-only |
+| `search` | yes | no | none — active-only |
+| `group` | yes | no | none — active-only |
 
-Every subcommand below also accepts `-h`/`--help`.
+Active mode replays Facebook query ids (`doc_id`) that rotate whenever Facebook ships a new client build. When that happens, `fetch` falls back to the browser automatically; the active-only commands simply fail until the package is updated.
+
+## Global options
+
+```bash
+scrape-fb --version     # prints "scrape-fb 0.3.1" and exits 0
+scrape-fb --help        # top-level usage
+scrape-fb <cmd> --help  # per-command usage
+```
+
+`scrape-fb` with no subcommand is a usage error. **Usage errors exit 1, not argparse's default 2** — exit 2 already means "login required or session expired" in this CLI's contract, and a script reading exit codes must be able to tell a typo'd flag from an expired session.
+
+Three flag groups recur across commands; they are documented once here and referenced below.
+
+### Profile options (`login`, `status`, `doctor`, and every retrieval command)
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--profile NAME` | `default` | Which named login session to use. Each profile is an independent logged-in browser session. |
+| `--profile-dir PATH` | unset | Override where this profile's browser data lives. Resolution order: this flag, then `$SFB_PROFILE_DIR`, then the platform data dir. See [Configuration](Configuration.md). |
+
+### Output options (every retrieval command)
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--limit N` | unbounded | Stop after this many results. |
+| `--format {json,ndjson}` | `json` | A single pretty-printed JSON array, or one NDJSON object per line. |
+| `--output PATH` | timestamped file under the platform data dir | Where to write results. |
+| `--raw` | off | Include the raw captured GraphQL node on each result (the `raw` field). |
+| `--no-redact` | off | Disable PII scrubbing on `--raw` output. Prints an on-screen warning; the saved file will then contain unredacted third-party data. |
+| `-v`, `--verbose` | off | Print the full (still redaction-scrubbed) error text instead of just the exception type name. |
+
+### Active-transport options (every retrieval command)
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--request-interval MIN,MAX` | `1.0,2.0` | Jittered seconds between active-mode requests. **MIN is clamped to >= 1.0s in code and cannot be bypassed.** |
+| `--max-pages N` | `20` | Active-mode pagination ceiling. |
+| `--headed` | off (headless) | Show the browser window. Debugging only. |
+
+---
+
+# Session commands
 
 ## `login`
 
-One-time interactive login. Opens a real, visible Chromium window (via Playwright) so you can log in to Facebook by hand — including any 2FA challenge Facebook throws at you. The tool then prints `Log in to Facebook there, then press Enter here to continue...` and waits; once you press Enter, it checks whether the page still looks like a login wall, and if not, persists the session — cookies and local storage — to disk under the named profile.
+One-time interactive login. Opens a real, visible Chromium window so you can log in to Facebook by hand, including any 2FA challenge. **Login completion is detected automatically** — you do not need to press anything. The session (cookies plus local storage) is then persisted under the named profile.
 
-You only need to do this once per profile, and again whenever [`status`](#status) reports the session has expired or been checkpointed.
+You need this once per profile, and again whenever [`status`](#status) reports the session expired or was checkpointed.
 
-| Flag | Default | Meaning |
+| Flag | Default | Effect |
 |---|---|---|
-| `--profile NAME` | `default` | Name of the login profile to create/overwrite. |
-| `--profile-dir PATH` | none (falls back to the platform data dir, or `$SFB_PROFILE_DIR`) | Override where this profile's session is stored on disk. See [Configuration](Configuration.md) for the resolution order. |
+| `--profile NAME` | `default` | Name of the login profile to save. |
+| `--profile-dir PATH` | unset | Override where this profile's browser data lives. |
+| `--timeout-seconds N` | `300.0` | How long to wait for you to finish logging in before giving up. |
+| `--from-chrome` | off | Import an existing Facebook session from your local Chrome instead of logging in. See the warning below. |
+| `--chrome-profile NAME` | `Default` | Which Chrome profile to import from, when `--from-chrome` is used. |
+
+**Example — normal login:**
+
+```bash
+scrape-fb login
+# stderr: Logged in. Profile saved at /Users/you/Library/Application Support/scraper-for-facebook/profiles/default
+```
+
+**Example — a second, named profile with a longer window for slow 2FA:**
+
+```bash
+scrape-fb login --profile throwaway --timeout-seconds 600
+```
+
+**Example — import a session from Chrome:**
+
+```bash
+pip install 'scraper-for-facebook[chrome]'
+scrape-fb login --from-chrome --chrome-profile "Profile 1"
+# stderr: Imported a Facebook session from Chrome profile 'Profile 1' (user 100000000000000).
+#         Active-mode commands will use it.
+```
+
+> **`--from-chrome` is an opt-in with real consequences.** It decrypts Chrome's cookies via your OS keychain (which may prompt), and it almost always means importing your **main** account — directly against this tool's throwaway-account guidance. It requires the `[chrome]` extra. A failed import exits 2. Read [../DISCLAIMER.md](../../DISCLAIMER.md) on ban risk first.
+
+Exit codes: `0` on success; `2` if login could not be verified (still seeing a login wall) or a Chrome import failed; `1` on any other failure.
+
+## `status`
+
+Check whether a profile is logged in, without doing any scraping.
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--profile NAME` | `default` | Which login session to check. |
+| `--profile-dir PATH` | unset | Override where this profile's browser data lives. |
+| `--json` | off | Emit machine-readable JSON to **stdout** instead of a human summary to stderr. |
 
 **Example:**
 
 ```bash
-scrape-fb login
-```
-
-```
-Logged in. Profile saved at /Users/you/Library/Application Support/scraper-for-facebook/profiles/default
-```
-
-A second profile, e.g. for a throwaway account kept separate from your main one:
-
-```bash
-scrape-fb login --profile burner
-```
-
-**Exit codes:** `0` on confirmed login, `2` if the tool still sees a login wall after you pressed Enter (try again), `1` on any other failure (browser crash, permissions error, etc. — the message is printed to stderr).
-
-## `status`
-
-Checks whether a profile's persisted session is still logged in, without opening a visible browser or touching the target timeline. Useful to run before a `fetch` you don't want to fail midway through, or in a script that wants to branch on session health.
-
-| Flag | Default | Meaning |
-|---|---|---|
-| `--profile NAME` | `default` | Which profile to check. |
-| `--profile-dir PATH` | none | Same override as `login`. |
-| `--json` | off | Emit a single JSON object to stdout instead of a human-readable line to stderr. |
-
-**Example (human-readable):**
-
-```bash
 scrape-fb status
+# stderr: status: logged_in (logged in 4213s ago)
+
+scrape-fb status --json
+# stdout: {"status": "logged_in", "session_age_seconds": 4213.0}
 ```
 
-```
-status: logged_in (logged in 3421s ago)
-```
-
-**Example (`--json`, for scripting):**
+Exit codes track the session state: `0` logged in, `2` expired, `3` checkpointed, `1` if the check itself failed. That makes `status` the right thing to gate a script on:
 
 ```bash
-scrape-fb status --json
+scrape-fb status --profile throwaway || { echo "log in first"; exit 1; }
 ```
-
-```json
-{"status": "logged_in", "session_age_seconds": 3421.0}
-```
-
-`session_age_seconds` is `null`/omitted-looking (`unknown` in the human form) if the tool can't determine how old the session is — treat that as "don't know," not as "just logged in."
-
-**Exit codes:** `0` = `logged_in`, `2` = `expired`, `3` = `checkpoint`, `1` = the status check itself failed unexpectedly (not the same as the session being expired — see the [exit-code table](#exit-codes) for why these are kept distinct).
 
 ## `setup`
 
-Provisions the isolated Playwright browser install this tool uses. This does not touch a login profile or Facebook at all — it just downloads/installs the Chromium build into this package's own cache directory, kept separate from any other tool's Playwright install (see [Configuration](Configuration.md)).
+Provision the browser (Chromium via Playwright) into an isolated cache under the tool's own data directory, never shared with any other tool's browser install. Run this once after installing.
 
-You normally run this exactly once, right after installing the package, before your first `login`.
-
-| Flag | Default | Meaning |
+| Flag | Default | Effect |
 |---|---|---|
-| `--force` | off | Reinstall even if a browser is already provisioned. Use this if `doctor` reports a broken install. |
+| `--force` | off | Reinstall even if already provisioned. |
 
 **Example:**
 
 ```bash
 scrape-fb setup
+# stderr: Browser provisioned.
+
+scrape-fb setup --force   # after a corrupted or partial install
 ```
 
-```
-Browser provisioned.
-```
-
-**Exit codes:** `0` on success, `1` if provisioning fails (network error, disk space, unsupported platform — message on stderr).
+Exit codes: `0` on success, `1` on failure.
 
 ## `doctor`
 
-Launches the browser against a profile and verifies the full round trip actually works: browser starts, the profile's session is usable, and a GraphQL capture can be observed and parsed. This is the "is everything actually wired up correctly" check — broader than `status`, which only checks the session, not the capture pipeline.
+Launch the browser against the saved profile and verify that a capture actually round-trips. Reach for this when a retrieval command returns exit 4 (zero results) and you need to tell "nothing there" from "something is broken".
 
-Run this after `setup` and after `login`, and any time `fetch` behaves strangely and you want to rule out an environment problem before suspecting a Facebook-side change.
-
-| Flag | Default | Meaning |
+| Flag | Default | Effect |
 |---|---|---|
-| `--profile NAME` | `default` | Which profile's session to exercise. |
-| `--profile-dir PATH` | none | Same override as `login`/`status`. |
+| `--profile NAME` | `default` | Which login session to test. |
+| `--profile-dir PATH` | unset | Override where this profile's browser data lives. |
 
 **Example:**
 
@@ -116,145 +191,230 @@ Run this after `setup` and after `login`, and any time `fetch` behaves strangely
 scrape-fb doctor
 ```
 
-```
-OK - captured 3 graphql response(s)
+Exit codes: `0` if the round-trip succeeded, `1` if it did not. The diagnostic message goes to stderr, redaction-scrubbed.
+
+---
+
+# Introspection commands
+
+Both are **offline** — no login, no network, no browser — and both write to **stdout**, so piping into `jq` works.
+
+## `schema`
+
+Print the output object schemas: `Post`, `Comment`, and `Entity`.
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--json` | off | Emit JSON Schema (draft 2020-12) instead of a plain annotated listing. |
+
+**Example:**
+
+```bash
+scrape-fb schema
+scrape-fb schema --json | jq '.Post.properties.reaction_count'
 ```
 
-If the browser can't even launch or navigate, or navigates but never sees a matching GraphQL response, you'll instead see `browser launch/navigation failed: <error>` or `browser launched and navigated, but no graphql XHR was captured` — either way, exit code `1`. The message is always redaction-scrubbed before printing, per [Security & Privacy](Security-and-Privacy.md).
+Field-by-field prose lives in [Output Schema](Output-Schema.md). Exit code: `0`.
 
-**Exit codes:** `0` if the round trip succeeds, `1` if any part of it fails.
+## `catalog`
+
+Describe the whole CLI to a caller: every command, its flags, the exit codes, the output contract, and the known limitations. Point an agent or a script at this instead of transcribing this page.
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--json` | off | Emit the catalog as JSON for programmatic use instead of a text listing. |
+
+**Example:**
+
+```bash
+scrape-fb catalog
+scrape-fb catalog --json | jq -r '.commands | keys[]'
+scrape-fb catalog --json | jq -r '.exit_codes | to_entries[] | "\(.key): \(.value)"'
+```
+
+Exit code: `0`.
+
+---
+
+# Retrieval commands
+
+All six share the profile, output, and active-transport option groups above. All six write results to a file and print only a summary to stderr.
 
 ## `fetch`
 
-The main command: scrape posts from one profile timeline.
+Fetch posts from a profile timeline. **The only command that supports both transports**, and the only one that can fall back from active to passive.
 
-```
-scrape-fb fetch <identifier> [flags]
-```
+Positional: `identifier` — a profile URL, a bare vanity name, or a numeric id. Accepted forms: `zuck`, `4`, `profile.php?id=4`, or a full `https://` URL on `facebook.com` / `www.facebook.com` / `m.facebook.com`. Anything else is rejected before it ever reaches the browser (exit 1).
 
-`<identifier>` is required and positional — a profile URL, a bare vanity name (e.g. `some.profile`), a bare numeric id, or a `profile.php?id=...` path. Anything that isn't one of those shapes, or a URL on a host other than `facebook.com`/`www.facebook.com`/`m.facebook.com`, is rejected before the browser ever opens (exit code `1`, see [Exit codes](#exit-codes)).
+Flags beyond the shared groups:
 
-### Flags
-
-| Flag | Default | Meaning |
+| Flag | Default | Effect |
 |---|---|---|
-| `--profile NAME` | `default` | Which login profile's session to use. |
-| `--profile-dir PATH` | none | Override where that profile is stored. |
-| `--limit N` | none (unbounded) | Stop after this many posts. |
-| `--since YYYY-MM-DD` | none | Only keep posts on or after this date. Best-effort — see [`--since` vs `--limit`](#--since-vs---limit-and-exit-code-7) below. |
-| `--until YYYY-MM-DD` | none | Only keep posts on or before this date. |
-| `--format json\|ndjson` | `json` | Output format. `json` is a single array; `ndjson` is one JSON object per line. |
-| `--output PATH` | a generated path under this tool's data directory (see below) | Where to write the result. |
-| `--scroll-pause MIN,MAX` | `2.0,4.0` | Random delay range (seconds) between scrolls. See [the floor](#--scroll-pause-and-its-05s-floor) below — this cannot go below 0.5s no matter what you pass. |
-| `--max-scrolls N` | `40` | Scroll budget. The run stops once this many scroll iterations happen, regardless of `--limit`/`--since`. |
-| `--headed` | off (headless) | Show the browser window while fetching. Useful for debugging what the scroller is actually doing. |
-| `--raw` | off | Include the raw captured GraphQL story node on each post, under a `raw` key (and on any nested `shared_post`, recursively). Meant for debugging parser drift — see [`--raw`/`--no-redact`](#--raw-and---no-redact) below. |
-| `--no-redact` | off | Only has an effect combined with `--raw`: disables PII scrubbing of the raw node before it's written to the output file. Prints an on-screen warning every time. |
-| `-v`, `--verbose` | off | On an unexpected error, print the full (redaction-scrubbed) exception text instead of just the exception type name. |
+| `--since YYYY-MM-DD` | unset | Keep posts on/after this date. Precise in active mode (server-side filter); best-effort within `--max-scrolls` when passive — see exit 7. |
+| `--until YYYY-MM-DD` | unset | Keep posts on/before this date. |
+| `--mode {auto,active,passive}` | `auto` | Transport. `active` reads the GraphQL API over HTTP (fast, precise dates); `passive` scrolls a browser; `auto` tries active and falls back. |
+| `--scroll-pause MIN,MAX` | `2.0,4.0` | **Passive only.** Jittered seconds between scrolls. MIN is clamped to >= 0.5s and cannot be bypassed. |
+| `--max-scrolls N` | `40` | **Passive only.** Scroll-iteration ceiling. If the budget runs out before `--limit`/`--since` is met, the run stops with them unmet. |
 
-If `--output` is omitted, the file is written under this package's own data directory (never your current working directory), named `<sanitized-identifier>-<UTC timestamp>.<json|ndjson>` — e.g. `some-profile-20260705T031813385206Z.json`. This is deliberate: captured posts contain other people's personal data, and a default that lands in a repo you might `git add .` in is the wrong default (see [DISCLAIMER.md §4](../DISCLAIMER.md)).
-
-### Example invocations
+**Example:**
 
 ```bash
-# Last 30 posts, defaults everywhere else.
-scrape-fb fetch https://www.facebook.com/some.profile --limit 30
-
-# Everything from the last 90 days, as NDJSON, to a specific file.
-scrape-fb fetch some.profile --since 2026-04-01 --format ndjson --output ~/fb-export.ndjson
-
-# A numeric-id profile, watching the browser do it.
-scrape-fb fetch 100000000000001 --limit 10 --headed
-
-# Debugging a suspected parser issue against a specific post shape.
-scrape-fb fetch some.profile --limit 5 --raw -v
+scrape-fb fetch zuck --limit 25 --since 2026-01-01 --output ~/fb/zuck.json
+# stderr: 25 posts, range 2026-01-04..2026-07-18, stop reason: limit_reached. Saved to /Users/you/fb/zuck.json
+jq -r '.[0].text' ~/fb/zuck.json
 ```
 
-**Example stderr summary (success):**
+**Example — force the browser transport** (e.g. active mode is broken by a `doc_id` rotation):
 
-```
-30 posts, range 2026-04-02..2026-07-04, stop reason: limit_reached. Saved to /Users/you/Library/Application Support/scraper-for-facebook/output/some-profile-20260705T031813385206Z.json
-```
-
-**Example stderr summary (`--since` not confirmed reached — see below):**
-
-```
-12 posts, range 2026-05-14..2026-07-04, stop reason: max_scrolls (requested --since NOT confirmed reached). Saved to /Users/you/.../some-profile-....json
+```bash
+scrape-fb fetch zuck --mode passive --max-scrolls 60 --scroll-pause 3,6 --limit 50
 ```
 
-### `--scroll-pause` and its 0.5s floor
+> Passive mode **cannot see a profile's newest post** — the first timeline batch is server-rendered into the HTML and never fetched as a GraphQL request. Active mode can.
 
-`--scroll-pause MIN,MAX` takes two comma-separated numbers, e.g. `--scroll-pause 3,6`. Each scroll waits a random duration in that range before the next one.
+## `feed`
 
-The minimum is **clamped to 0.5 seconds and cannot be bypassed** — this is the one hard limit in the whole tool (`clamp_scroll_pause` in `config.py`). Pass `--scroll-pause 0,0` and you'll get:
+Fetch posts from **your own** home news feed. Takes no positional argument — the feed belongs to whoever the profile is logged in as. **Active-only.**
 
-```
-scrape-fb: --scroll-pause 0,0 raised to 0.5,0.5 (minimum is 0.5s)
-```
+Flags: the shared profile, output, and active-transport groups only.
 
-This applies no matter how the value arrives — CLI flag or the Python API — and exists specifically so this can't be turned into a fast mass-scraping tool by just cranking the pacing to zero (see [Guardrails in the README](../README.md#guardrails)).
+**Example:**
 
-### `--raw` and `--no-redact`
-
-`--raw` adds the full captured GraphQL story node to each post's output, under `raw` (and recursively on any `shared_post`). It's meant for debugging — e.g. figuring out why a field parsed wrong, or filing an issue about a Facebook response-shape change.
-
-By default, `--raw` output is **redacted before it's written to the output file**: every post's `raw` node (and its `shared_post.raw`, all the way down the chain) is passed through the same scrubbing path used for diagnostics — sensitive keys (`fb_dtsg`, `lsd`, `datr`, `xs`, `access_token`, etc.) are replaced with `[REDACTED]`, free-text fields are truncated, and signed `fbcdn`/`scontent` URLs have their query string (the signing material) stripped.
-
-`--no-redact` disables that scrubbing for the `--raw` node specifically, and prints this every time:
-
-```
-WARNING: --no-redact leaves --raw output unscrubbed. The saved file will contain unredacted third-party data. See DISCLAIMER.md.
+```bash
+scrape-fb feed --limit 30 --format ndjson --output ~/fb/feed.ndjson
+# stderr: 30 posts, range 2026-07-16..2026-07-20, stop reason: limit_reached. Saved to /Users/you/fb/feed.ndjson
 ```
 
-Note this is the reverse of every other redaction path in the tool: normal `-v`/error/diagnostic output is *always* scrubbed with no way to turn it off, but `--raw`'s node is written to the *output file* — which is unredacted by design everywhere else (see [DISCLAIMER.md §5](../DISCLAIMER.md)) — so `--no-redact` exists to let `--raw` opt into that same "fully raw" behavior on purpose, deliberately, with a warning attached. Only use it locally when you specifically need the untouched node; the resulting file is exactly as sensitive as the disclaimer describes.
+`feed --limit 3` is also the recommended probe when another command returns exit 4 and you need to know whether your session itself is healthy.
 
-### `--since` vs `--limit`, and exit code 7
+## `post`
 
-`--limit` and `--since` compose: the fetch stops as soon as either condition is satisfied, whichever triggers first. That "first trigger wins" behavior is exactly why exit code 7 is scoped the way it is.
+Fetch a single post by permalink URL. **Active-only.**
 
-Internally, `retrieve.py` tracks a stop reason for every run: `limit_reached`, `since_crossed`, `feed_exhausted`, `max_scrolls`, `feed_stalled`, or (a fallback) `unknown_error`. Whether `--since` was actually *confirmed reached* is judged only from `since_crossed`/`feed_exhausted` — deliberately **not** from `limit_reached`, because the scroll loop checks `--limit` before `--since` on every batch. That means a run can hit `--limit` long before scrolling anywhere near the `--since` date — hitting the limit proves nothing about whether `--since` would also have been reached.
+Positional: `url` — a real post permalink. Reel URLs are unsupported (a reel page embeds no story id).
 
-The CLI then makes its own, separate judgment call on top of that: hitting `--limit` is still reported as a full, ordinary success (exit `0`), even when `--since` was never independently confirmed — because you got exactly what you asked for (N posts), on purpose, by design. Exit code `7` is reserved for a narrower, genuinely uncertain case: `--since` was requested, but the run stopped for a reason that says nothing about whether that date was reached — `max_scrolls` (ran out of scroll budget) or `feed_stalled` (Facebook stopped returning new posts). In both of those cases the tool honestly doesn't know if it reached your requested date, so it says so instead of guessing.
+Flags: the shared groups. `--limit` and `--max-pages` are accepted but carry little meaning for a single post; the result is still written as a one-element array (or a single NDJSON line).
 
-Concretely:
+**Example:**
 
-- `--limit 30` only, feed pagination hits the limit first → stop reason `limit_reached` → **exit 0**.
-- `--since 2020-01-01` only, and pagination actually crosses that date or the feed runs dry first → stop reason `since_crossed` or `feed_exhausted` → **exit 0**.
-- `--since 2020-01-01` (deep history), but `--max-scrolls` (or a scroll budget default of 40) runs out before getting anywhere near 2020 → stop reason `max_scrolls` → **exit 7**, with `(requested --since NOT confirmed reached)` in the stderr summary.
-- `--limit 30 --since 2020-01-01` together, and the limit is hit first (the common case, since `--limit` is checked first) → stop reason `limit_reached` → **exit 0**, even though `--since` was never verified. This is intentional, not a bug — see above.
+```bash
+scrape-fb post "https://www.facebook.com/zuck/posts/1234567890" --raw --output ~/fb/one.json
+# stderr: 1 post by Mark Zuckerberg. Saved to /Users/you/fb/one.json
+```
 
-If you're scripting against this, exit `7` is your signal to either raise `--max-scrolls`, narrow `--since`, or accept the partial result — the stderr line always tells you the actual post count and observed date range either way, so a partial run is never silently indistinguishable from a complete one.
+With `--raw` and without `--no-redact`, the raw node is scrubbed recursively — including the raw node of any nested shared/quoted post.
+
+## `comments`
+
+Fetch comments on a post. **Active-only.**
+
+Positional: `url` — a post permalink (same restriction as `post`; no reels).
+
+Flags beyond the shared groups:
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--sort {top,recent}` | `top` | Comment ordering. |
+| `--replies` | off | Also fetch replies (depth >= 1). Costs one extra request per commented comment — replies are never returned inline. |
+
+**Example:**
+
+```bash
+scrape-fb comments "https://www.facebook.com/zuck/posts/1234567890" \
+  --sort recent --replies --limit 50 --output ~/fb/comments.json
+# stderr: 50 comments (18 replies), stop reason: limit_reached. Saved to /Users/you/fb/comments.json
+```
+
+Two limits worth knowing:
+
+- `--limit` counts **top-level comments only**, so one heavily-replied comment cannot consume the whole budget.
+- `--replies` fetches **depth-1 replies only**. A comment's `reply_count` includes deeper nested replies that are not returned.
+
+Output is `Comment` objects, not `Post` objects.
+
+## `search`
+
+Search Facebook. **Active-only.**
+
+Positional: `query` — the search text.
+
+Flags beyond the shared groups:
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--type {top,posts,people,pages,groups}` | `top` | Which vertical to search. `top`/`posts` return `Post` objects; `people`/`pages`/`groups` return `Entity` records. |
+
+**Example — find groups, then read them:**
+
+```bash
+scrape-fb search "urban gardening" --type groups --limit 10 --output ~/fb/groups.json
+# stderr: 0 posts, 10 entities, stop reason: limit_reached. Saved to /Users/you/fb/groups.json
+jq -r '.[] | "\(.name)\t\(.url)"' ~/fb/groups.json
+```
+
+`--type top` can return a mix: Posts and Entities are concatenated into the same output file, distinguishable by their fields (an `Entity` has `kind`/`name`; a `Post` has `text`/`author_name`).
+
+## `group`
+
+Fetch posts from a group's feed. **Active-only.**
+
+Positional: `identifier` — a group URL, vanity slug, or numeric id.
+
+Flags: the shared profile, output, and active-transport groups only.
+
+**Example:**
+
+```bash
+scrape-fb group 123456789012345 --limit 40 --request-interval 2,4 --output ~/fb/group.json
+# stderr: 40 posts, range 2026-06-30..2026-07-20, stop reason: limit_reached. Saved to /Users/you/fb/group.json
+```
+
+The logged-in account must be able to see the group. A private group you are not a member of comes back as exit 5 (target unavailable) or exit 4 (zero results).
+
+---
 
 ## Exit codes
 
-### `status`
+The contract lives in `src/scraper_for_facebook/exits.py` and is a public API — these numbers do not change without breaking someone's script.
 
-| Code | Meaning |
-|---|---|
-| 0 | `logged_in` — session is valid. |
-| 2 | `expired` — a profile exists but Facebook is showing a login wall. Run `scrape-fb login`. |
-| 3 | `checkpoint` — Meta has flagged the session with a security checkpoint. Log in again in a real (headed) browser. |
-| 1 | The status check itself failed unexpectedly — not the same as `expired`; something (browser launch, disk read) went wrong before a status could even be determined. |
-
-### `fetch`
-
-| Code | Meaning | Where it comes from |
+| Code | Name | Meaning |
 |---|---|---|
-| 0 | Success — `--limit` satisfied, `--since`/`--until` window fully covered, or the feed was genuinely exhausted. | Default, unless the `--since`-inconclusive case below applies. |
-| 1 | Invalid identifier, or any other/unexpected error. | `InvalidIdentifierError` on the positional argument, or the catch-all `except Exception` around `retrieve.fetch_profile`. Also: **any argparse usage error** (bad/missing flag, unknown subcommand) — see note below. |
-| 2 | Login required or session expired. | `LoginRequiredError` / `SessionExpiredError` from `retrieve.fetch_profile`. Message includes `Run: scrape-fb login --profile <name>`. |
-| 3 | Account checkpoint. | `ChallengeError` — Meta flagged the session mid-run. Never retried automatically. |
-| 4 | Zero posts retrieved. | `result.posts` is empty. The stderr message distinguishes two cases: if the stop reason is `unknown_error`, it says scrolling was interrupted before any post was captured (rerun with `-v`); otherwise it suggests a possible Facebook response-shape change and links the issue tracker. |
-| 5 | Profile unavailable. | `ProfileUnavailableError` — the target is memorialized, blocked, restricted, or doesn't exist. |
-| 7 | Partial: `--since` requested but not confirmed reached. | `args.since is not None` and stop reason is `max_scrolls` or `feed_stalled`. See [above](#--since-vs---limit-and-exit-code-7). |
+| `0` | `OK` | Success — limit met, requested date window fully reached, or feed genuinely exhausted. |
+| `1` | `ERROR` | Unexpected error. Re-run with `-v` for the (redaction-scrubbed) detail. Also used for usage errors: bad flags, missing arguments, an invalid identifier. |
+| `2` | `LOGIN_REQUIRED` | Login required or session expired. Run `scrape-fb login` (opens a real browser; needs a human). |
+| `3` | `CHECKPOINT` | Account checkpoint — Meta flagged the session. **Do NOT retry:** hammering a checkpointed account turns a temporary block into a permanent one. |
+| `4` | `NO_RESULTS` | Zero results. Ambiguous by nature: either genuinely nothing there, or parser drift / `doc_id` rotation. Probe with a known-good command (e.g. `feed --limit 3`) to tell them apart. |
+| `5` | `TARGET_UNAVAILABLE` | Target unavailable (memorialized, blocked, restricted, or nonexistent). A definite answer, not a transient failure — do not retry with variations. |
+| `7` | `SINCE_UNCONFIRMED` | Partial: `--since` was requested but not confirmed reached within the run's budget. The posts returned are real but may not be all of them in that range. |
 
-**Argparse usage errors are exit code 1, not argparse's usual 2.** This CLI overrides `argparse.ArgumentParser.error()` (the `_ArgumentParser` class in `cli.py`) specifically so that a typo'd flag or missing required argument exits `1`, not `2` — because exit `2` already has a specific, different meaning in this CLI's contract ("login required or session expired"). Without this override, a script checking `if exit_code == 2: run login` could be fooled by an unrelated CLI typo into thinking the session had expired. So: `scrape-fb fetch` with no identifier, an unknown flag, or `scrape-fb bogus-subcommand` all exit `1`, printing usage to stderr — same code as "other/unexpected error," on purpose.
+There is no code `6`.
 
-## See also
+**On exit 7 specifically:** hitting `--limit` is a full success (`0`) even if `--since` was never independently confirmed crossed. Code `7` is reserved for "we genuinely don't know whether we reached `--since`" — the run stopped on its scroll budget, its page budget, or a stalled feed. Raising `--max-pages` (active) or `--max-scrolls` (passive) and re-running is the fix.
 
-- [Quick Start](Quick-Start.md) — a walkthrough of `setup` → `login` → `fetch` for a first-time user.
-- [Configuration](Configuration.md) — profile storage resolution order, environment variables, browser cache location.
-- [Output Schema](Output-Schema.md) — what actually ends up in the `--output` file.
-- [Security & Privacy](Security-and-Privacy.md) — the full redaction/threat model referenced throughout this page.
-- [FAQ & Troubleshooting](FAQ-and-Troubleshooting.md)
-- [../DISCLAIMER.md](../DISCLAIMER.md)
+**Scripting example:**
+
+```bash
+scrape-fb fetch zuck --since 2026-01-01 --output ~/fb/zuck.json
+case $? in
+  0) echo "complete" ;;
+  7) echo "partial — raise --max-pages and re-run" ;;
+  4) echo "nothing found — probe with: scrape-fb feed --limit 3" ;;
+  3) echo "CHECKPOINT — stop, do not retry"; exit 1 ;;
+  *) echo "failed"; exit 1 ;;
+esac
+```
+
+## Known limitations
+
+Straight from `catalog`, so they live in exactly one place:
+
+- Active mode replays Facebook query ids (`doc_id`) that rotate when Facebook ships a client build. `fetch` falls back to the browser automatically; `feed`/`comments`/`post`/`search`/`group` are active-only and simply fail until the package is updated.
+- Passive mode cannot see a profile's newest post — the first timeline batch is server-rendered into the HTML, never fetched as a GraphQL request. Active mode can.
+- `post`/`comments` require a real post permalink. Reel URLs are unsupported.
+- `comments --replies` fetches depth-1 replies only.
+- `--limit` on `comments` counts top-level comments only.
+- Requests are rate-floored in code and cannot be bypassed: >= 1.0s between active requests, >= 0.5s between scrolls.
+
+---
+
+**Next:** [Configuration](Configuration.md) for every knob and where data lives, [Output Schema](Output-Schema.md) for the fields inside the files these commands write, and [Chaining Recipes](Chaining-Recipes.md) for multi-command workflows. Back to the [wiki index](README.md).

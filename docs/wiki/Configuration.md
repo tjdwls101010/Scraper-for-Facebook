@@ -1,46 +1,57 @@
 # Configuration
 
-This page covers login profiles, where things are stored on disk, and the two flags most worth tuning deliberately: `--scroll-pause` and `--max-scrolls`. For the full flag list see [CLI Reference](CLI-Reference.md); this page is about *why* the defaults are what they are and when to change them.
+Every knob `scrape-fb` exposes — what it defaults to, what it actually changes, and which two limits you cannot turn off — for anyone tuning a run or wondering where their data went.
 
-## Login profiles
+This page is about *why* the defaults are what they are. For the bare flag list per command, see [CLI Reference](CLI-Reference.md).
 
-A "profile" is just a persisted, logged-in browser session — cookies and local storage saved to disk after you run `scrape-fb login`. It's the same idea as a Chrome profile: everything needed to resume the session without logging in again.
+## Where everything lives
 
-Every command that touches the browser takes `--profile NAME`:
+There is no config file. Settings are flags, plus one environment variable. State lives under a single platform data directory resolved by [platformdirs](https://pypi.org/project/platformdirs/):
+
+| Platform | Data directory |
+|---|---|
+| macOS | `~/Library/Application Support/scraper-for-facebook/` |
+| Linux | `~/.local/share/scraper-for-facebook/` |
+| Windows | `%LOCALAPPDATA%\scraper-for-facebook\` |
+
+Four subdirectories live under it:
+
+```mermaid
+flowchart TD
+    R["scraper-for-facebook/ (platform data dir)"] --> P["profiles/&lt;name&gt;/<br/>logged-in browser sessions<br/>created 0700"]
+    R --> T["tokens/<br/>cached session tokens for ACTIVE mode<br/>files written 0600"]
+    R --> B["browsers/<br/>isolated Chromium install<br/>from scrape-fb setup"]
+    R --> O["output/<br/>timestamped result files<br/>default --output target"]
+```
+
+- **`profiles/<name>/`** — one persisted, logged-in browser session per profile name (cookies plus local storage). Created at `0700`: that directory *is* an authenticated Facebook session with no password attached.
+- **`tokens/`** — session tokens extracted for active mode, cached per login profile. Kept separate from the profile dir so a stale token cache can be cleared without destroying the expensive, 2FA-satisfied browser login it came from. Files are written `0600`.
+- **`browsers/`** — the isolated Chromium install that `scrape-fb setup` provisions (roughly 300 MB). Deliberately never shared with any other Playwright-based tool's browser cache, so one tool's `install` can't silently break another's. Not user-configurable; delete it and re-run `scrape-fb setup`.
+- **`output/`** — where results land when you don't pass `--output`.
+
+## Login profiles: `--profile`, `--profile-dir`, `SFB_PROFILE_DIR`
+
+A "profile" is a persisted, logged-in browser session — the same idea as a Chrome profile. Every command that touches the browser accepts `--profile`:
 
 ```bash
-scrape-fb login   --profile work
-scrape-fb status  --profile work
-scrape-fb doctor  --profile work
-scrape-fb fetch   --profile work https://www.facebook.com/some.profile
+scrape-fb login  --profile work
+scrape-fb status --profile work
+scrape-fb feed   --profile work --limit 10
 ```
 
-If you don't pass `--profile`, everything uses a profile named `default`. You only need more than one profile if you're logging into more than one Facebook account from this tool — most people never need this.
+| Knob | Default | Effect |
+|---|---|---|
+| `--profile NAME` | `default` | Which named session to use. Sessions are fully independent — no shared state. |
+| `--profile-dir PATH` | unset | Overrides the *root* directory profiles are stored under, for this invocation only. |
+| `SFB_PROFILE_DIR` (env) | unset | Same override, for every invocation in the environment. |
 
-Profiles are stored under a platformdirs-managed data directory, one subdirectory per name. On macOS that's:
-
-```
-~/Library/Application Support/scraper-for-facebook/profiles/<name>/
-```
-
-So `scrape-fb login` (the default profile) and `scrape-fb login --profile work` end up at `.../profiles/default/` and `.../profiles/work/` respectively — fully independent sessions, no shared state.
-
-Each profile directory is created at permission `0700` (owner read/write/execute only) — see [Security & Privacy](Security-and-Privacy.md) for why that matters. In short: that directory *is* an authenticated Facebook session with no password attached. Treat it accordingly, and read [DISCLAIMER.md](../DISCLAIMER.md) §6 before you back it up, sync it, or copy it anywhere.
-
-## Overriding where profiles live: `--profile-dir` and `SFB_PROFILE_DIR`
-
-If you don't want profiles under the default platformdirs path — e.g. you keep all app state on a separate encrypted volume — you can override the root directory profiles are stored under, two ways:
-
-- `--profile-dir PATH` on the command line (`login`, `status`, `doctor`, `fetch` all accept it)
-- the `SFB_PROFILE_DIR` environment variable
-
-The precedence, exactly, is:
+Resolution order, exactly:
 
 1. `--profile-dir PATH`, if given, always wins.
-2. Otherwise, the `SFB_PROFILE_DIR` environment variable, if set.
-3. Otherwise, the platformdirs default (`.../scraper-for-facebook/profiles/`).
+2. Otherwise `$SFB_PROFILE_DIR`, if set.
+3. Otherwise `<platform data dir>/profiles/`.
 
-Whichever root is in effect, the actual profile still lives at `<root>/<name>`, so `--profile` and `--profile-dir`/`SFB_PROFILE_DIR` compose normally:
+Whichever root is in effect, the profile still lives at `<root>/<name>`, so the two compose:
 
 ```bash
 export SFB_PROFILE_DIR=/Volumes/secure/fb-profiles
@@ -48,61 +59,121 @@ scrape-fb login --profile work
 # -> session stored at /Volumes/secure/fb-profiles/work/
 ```
 
-A `--profile-dir` passed on the command line overrides `SFB_PROFILE_DIR` for that invocation only, without unsetting the environment variable.
+Both forms expand `~`. Note that `--profile-dir` and `SFB_PROFILE_DIR` move *profiles only* — `tokens/`, `browsers/`, and `output/` stay under the platform data dir.
 
-## The isolated browser cache
+You need more than one profile only if you log in to more than one Facebook account. Most people never do. See [Security and Privacy](Security-and-Privacy.md) before you back up, sync, or copy a profile directory anywhere.
 
-Separately from login profiles, this tool also keeps its own **Chromium install** isolated from every other Playwright-based tool on your machine. It does this by setting `PLAYWRIGHT_BROWSERS_PATH` to:
+## Pacing: the two floors you cannot remove
 
-```
-~/Library/Application Support/scraper-for-facebook/browsers/
-```
+These are the two most consequential knobs, and the only two settings in the tool with a hard limit enforced in code.
 
-before launching any browser session. `scrape-fb setup` installs Chromium into that path; every later `login`/`status`/`doctor`/`fetch` reads from it.
+| Knob | Default | Floor | Applies to |
+|---|---|---|---|
+| `--request-interval MIN,MAX` | `1.0,2.0` | MIN >= **1.0s** | ACTIVE transport (every retrieval command) |
+| `--scroll-pause MIN,MAX` | `2.0,4.0` | MIN >= **0.5s** | PASSIVE transport (`fetch` only) |
 
-This isolation is deliberate, not incidental: Playwright and patchright pin exact browser build versions, and different tools on your system (this one, another scraper, an unrelated automation project) can easily want different versions of the same browser. Sharing a cache means one tool's `install` can silently break another's. Keeping `scraper-for-facebook`'s Chromium in its own directory means this tool never touches, and is never touched by, anyone else's Playwright browser cache — including if you also use the `web-fetch` skill or another Playwright-based tool on the same machine.
+Both take a jittered `MIN,MAX` pair; each wait is randomized inside that range so the traffic doesn't come out metronomic. Raising either value slows a run down and makes it look more human. Lowering either speeds it up and raises your account's checkpoint/ban risk.
 
-You should not normally need to think about this path at all — it's not user-configurable, and there's no flag or environment variable for it. It's documented here so that if you ever go looking for where `scrape-fb setup` put ~300MB of Chromium, you know where to look (and that deleting it just means the next `login`/`fetch` will need `scrape-fb setup` run again).
+### They are clamped in code, and they cannot be set to zero
 
-## Tuning `--scroll-pause` and `--max-scrolls`
-
-`fetch` scrolls the timeline to load more posts, the same way you would by hand. Two flags control how that scrolling behaves:
-
-| Flag | Default | Meaning |
-|---|---|---|
-| `--scroll-pause MIN,MAX` | `2.0,4.0` | Seconds to wait between scrolls, randomized in this range |
-| `--max-scrolls N` | `40` | Maximum number of scroll actions in one `fetch` run |
-
-**The tradeoff is real and it runs in one direction: faster/deeper scrolling raises your account's checkpoint/ban risk.** Facebook's abuse detection looks at exactly this kind of signal — a browser scrolling far faster or more persistently than a human would. Raising `--max-scrolls` lets a single run reach further back into a timeline's history (useful for a wide `--since` window); lowering `--scroll-pause` makes each run finish faster. Both of those wins come at the cost of looking less human to Facebook.
-
-**One floor is non-bypassable:** `--scroll-pause` cannot go below `0.5` seconds no matter what you pass. `clamp_scroll_pause` enforces this in code — not just as documented advice — for both the low and high end of the range (if you pass a max below the clamped min, the max gets raised to match it). Passing something below the floor doesn't error; it gets silently raised, with a note on stderr telling you what actually got used:
+`clamp_request_interval` and `clamp_scroll_pause` in `config.py` raise anything below the floor before it is ever used. Passing a lower value is not an error; it is silently raised, with a note on stderr telling you what was actually used:
 
 ```
 scrape-fb: --scroll-pause 0,0.2 raised to 0.5,0.5 (minimum is 0.5s)
+scrape-fb: --request-interval 0,0.1 raised to 1.0,1.0 (minimum is 1.0s)
 ```
 
-This applies regardless of how the value arrives — CLI flag or direct Python API call. There is no flag, environment variable, or config file that disables it. It exists specifically so this tool can't be turned into a mass-scraping tool by cranking pacing to zero — see [DISCLAIMER.md](../DISCLAIMER.md) and the "Guardrails" section of the [main README](../README.md).
+If you pass a MAX below the clamped MIN, the MAX is raised to match. The clamp applies **regardless of how the value arrives** — CLI flag, environment, or a direct Python API call. There is no flag, environment variable, config file, or keyword argument that disables it.
 
-**When it's reasonable to raise the defaults:**
-- You need to reach further back in a timeline's history than 40 scrolls gets you (`--since` with an old date), and you're comfortable with the added checkpoint risk for that one run.
-- You're doing a one-off deep pull and would rather it run slower and more human-like than fast — in that case, raise `--scroll-pause` *and* `--max-scrolls` together, not just `--max-scrolls` alone.
+**Why both floors exist, and why there are two:**
 
-**When you should not lower them below the defaults:** essentially never. The defaults (`2.0`-`4.0` seconds, 40 scrolls) are already a deliberately cautious starting point, not an arbitrary one. Lowering `--scroll-pause` toward the floor to finish faster is exactly the behavior pattern Facebook's detection is built to catch, and the floor exists because "just this once" is how accounts get flagged. If you're tempted to lower it, prefer running with `--headed` instead so you can watch what's happening, rather than speeding up a headless run.
+Zero-delay retrieval is simultaneously the most ban-inducing setting available and the thing that would turn this from a personal tool into a mass-scraping one. The scroll floor alone used to be the single hard limit — but active mode reaches the same data over plain HTTP POSTs with no scrolling at all, so a scroll-only floor would stop constraining volume the moment that transport was used. The request-interval floor is deliberately identical in shape and spirit, so that "just switch to active mode" is not a way around the guardrail.
 
-## Default output location and `--output`
+The two floors together are what make the claim "this is a personal tool, not a crawler" actually true rather than merely stated. They also protect you directly: a browser session retrieving far faster or more persistently than a human is exactly the signal Meta's abuse detection is built to catch, and a checkpoint (exit 3) is the cheap outcome — a permanent ban is the expensive one.
 
-`fetch` writes captured posts to a file — never to stdout, and never to your current directory by default. The default path is:
+**When to raise them:** whenever you are doing a deep pull and would rather it run slow. Raising is always safe.
 
-```
-~/Library/Application Support/scraper-for-facebook/output/<identifier>-<timestamp>.<ext>
-```
+**When to lower them:** essentially never. The defaults are already a deliberately cautious starting point. If a run feels too slow to watch, use `--headed` and watch it instead of speeding it up.
 
-(`<ext>` is `json` or `ndjson` depending on `--format`.) This default is deliberate: captured posts contain other people's names, message text, and signed media URLs (see [DISCLAIMER.md](../DISCLAIMER.md) §4), and a default that lands outside any git-tracked path makes it harder to accidentally commit someone else's personal data.
+## Volume ceilings: `--max-pages` and `--max-scrolls`
 
-Pass `--output PATH` to write somewhere else instead:
+| Knob | Default | Applies to | Effect |
+|---|---|---|---|
+| `--max-pages N` | `20` | ACTIVE (every retrieval command) | Ceiling on cursor pages a single pagination loop will walk. |
+| `--max-scrolls N` | `40` | PASSIVE (`fetch` only) | Ceiling on scroll iterations in one run. |
+
+Both are ordinary, fully overridable defaults — unlike the pacing floors, nothing clamps them. They exist because deep pagination means more requests and more ban risk, and an unbounded loop is precisely how a personal tool becomes a crawler.
+
+If either budget runs out before `--limit` or `--since` is satisfied, the run stops with them unmet. When `--since` was requested and the stop reason was a budget or a stalled feed, the command exits **7** rather than 0 — "we genuinely don't know whether we reached that date". Raise the relevant ceiling and re-run:
 
 ```bash
-scrape-fb fetch https://www.facebook.com/some.profile --limit 30 --output ./out.json
+scrape-fb fetch zuck --since 2025-01-01 --max-pages 60
 ```
 
-`--output` is a plain path override — it doesn't change where profiles or the browser cache live, only where the fetched posts get written. Whatever directory you point it at, you're responsible for keeping that file as secure as its contents warrant (see [Security & Privacy](Security-and-Privacy.md)).
+Note that `--limit` composes with these: hitting `--limit` is a full success (exit 0) even if `--since` was never independently confirmed crossed.
+
+## Output: `--output`, `--format`
+
+| Knob | Default | Effect |
+|---|---|---|
+| `--output PATH` | `<data dir>/output/<identifier>-<timestamp>.<ext>` | Where results are written. Parent directories are created as needed. |
+| `--format {json,ndjson}` | `json` | `json` writes one pretty-printed array; `ndjson` writes one object per line. Also picks the default filename's extension. |
+| `--limit N` | unbounded | Stop after N results. |
+
+Every retrieval command **writes to a file** and prints only a one-line summary to stderr — nothing useful reaches stdout. The default location is deliberate: captured posts contain other people's names, message text, and signed media URLs, and defaulting outside any git-tracked path makes it much harder to accidentally commit someone else's personal data. Never the current working directory, never a repo.
+
+```bash
+scrape-fb feed --limit 30 --format ndjson --output ~/fb/feed.ndjson
+```
+
+`--output` changes only where results go; it does not affect profiles, tokens, or the browser cache. Whatever path you choose, the file's contents are as sensitive as what they contain.
+
+## Raw capture: `--raw` and `--no-redact`
+
+| Knob | Default | Effect |
+|---|---|---|
+| `--raw` | off | Attach the raw captured GraphQL node to each result as a `raw` field. |
+| `--no-redact` | off | Disable PII scrubbing on that raw output. |
+
+Without `--raw`, results contain only the parsed, documented fields. With `--raw`, the underlying node is included too — useful for debugging a parse or recovering a field the parser doesn't expose yet.
+
+By default, `--raw` output is **scrubbed** before it is written, recursively: the top-level post's raw node *and* the raw node of every nested shared/quoted post down the chain. `--no-redact` turns that scrubbing off and prints a warning:
+
+```
+WARNING: --no-redact leaves --raw output unscrubbed. The saved file will contain
+unredacted third-party data. See DISCLAIMER.md.
+```
+
+Treat `--no-redact` as a debugging tool for data you are about to delete, not a normal setting. Scraping other people's posts can make *you* a data controller over their personal data — see [Security and Privacy](Security-and-Privacy.md) and [../DISCLAIMER.md](../../DISCLAIMER.md).
+
+## Transport: `--mode`
+
+| Knob | Default | Effect |
+|---|---|---|
+| `--mode {auto,active,passive}` | `auto` | `fetch` only. `active` reads the GraphQL API over HTTP; `passive` drives a browser and scrolls; `auto` tries active and falls back to passive. |
+
+`fetch` is the only command that supports both transports. `feed`, `post`, `comments`, `search`, and `group` are **active-only** and have no `--mode` flag at all — when active mode breaks (Facebook rotates the `doc_id` query ids on a client build), they fail until the package is updated, while `fetch` keeps working via fallback.
+
+Pick `--mode active` when you want speed and server-side-precise `--since` filtering. Pick `--mode passive` when active mode is broken or you specifically want the browser path. Leave it on `auto` otherwise.
+
+## Browser visibility: headless vs `--headed`
+
+| Knob | Default | Effect |
+|---|---|---|
+| `--headed` | off — the browser runs **headless** | Show the browser window during the run. |
+
+Retrieval commands run headless by default. `--headed` is a debugging aid: it lets you watch what the session actually sees, which is the fastest way to spot a login wall, a checkpoint interstitial, or a page that simply isn't loading. It does not change pacing, results, or the output contract.
+
+`scrape-fb login` is the exception — it always opens a real, visible window, because a human has to type into it.
+
+## Diagnostics: `-v` / `--verbose`
+
+| Knob | Default | Effect |
+|---|---|---|
+| `-v`, `--verbose` | off | Print the full error text instead of just the exception type name. |
+
+Errors are terse by default (`unexpected error: KeyError (rerun with -v for details)`) so a stack-shaped message never dumps captured content onto your terminal. The verbose text is still redaction-scrubbed.
+
+---
+
+**Next:** [CLI Reference](CLI-Reference.md) for the per-command flag tables, [Security and Privacy](Security-and-Privacy.md) for what these paths and defaults are protecting, and [FAQ and Troubleshooting](FAQ-and-Troubleshooting.md) when a run stops early. Back to the [wiki index](README.md).
