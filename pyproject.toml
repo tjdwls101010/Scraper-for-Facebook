@@ -4,14 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "scraper-for-facebook"
-version = "0.3.1"
-description = "Scrape your own logged-in Facebook timeline by observing the GraphQL responses your own browser session makes. No token replay, no credential injection."
+version = "0.3.2"
+description = "Read your own logged-in Facebook — timelines, feed, comments, search, groups — into clean JSON, over the same GraphQL endpoint your browser uses."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [{ name = "tjdwls101010" }]
-keywords = ["facebook", "scraper", "scraping", "graphql", "scrapling"]
+keywords = ["facebook", "scraper", "web-scraping", "graphql", "cli", "playwright", "scrapling"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",

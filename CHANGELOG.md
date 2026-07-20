@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-07-21
+
+### Fixed
+- **`FacebookScraper(profile=...)` used the wrong account's cached credentials.** Active mode keys its token cache by profile *name* while the browser session is keyed by *directory*; the Python facade forwarded only the directory, so a non-default profile drove one account's browser while reading — and overwriting — the token cache belonging to `default`. With a populated cache that meant retrieving as the wrong account, and either way it corrupted the other profile's cached cookies. Silent rather than a crash. Affects the Python API only with a non-default `profile`; the CLI was never affected. Introduced in 0.3.0.
+
+### Changed
+- The PyPI summary and keywords now match the README and the repository description, instead of still describing the v0.2.0 browser-only scraper. Package metadata is frozen per release, so this could only be corrected by publishing.
+
+### Documentation
+- The whole documentation set rewritten for v0.3.x: twelve `docs/wiki/` pages (adding Architecture and Chaining-Recipes), a rewritten README, and CONTRIBUTING / SECURITY / CODE_OF_CONDUCT at the repository root. Pages now defer to `scrape-fb catalog` and `scrape-fb schema` for anything the CLI can describe about itself.
+
+
 ## [0.3.1] - 2026-07-20
 
 ### Added
