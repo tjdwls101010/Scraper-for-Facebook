@@ -33,4 +33,10 @@ profiles/
 !tests/fixtures/split_defer_merge.ndjson
 !tests/fixtures/truncated_post.ndjson
 
+# E2E harness runs capture full session transcripts, which contain whatever the
+# run scraped — real names, comment text, profile URLs. `.jsonl` is NOT covered
+# by the *.json rule above, so it needs its own entry (learned the hard way).
+.claude/.e2e-runs/
+*.jsonl
+
 .DS_Store

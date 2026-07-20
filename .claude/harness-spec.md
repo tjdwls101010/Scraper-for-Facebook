@@ -57,10 +57,24 @@ Scenarios for the optional e2e pass:
 3. "Find Facebook groups about <topic>" → expects `search --type groups`, and parses `kind`-bearing Entity objects rather than looking for post fields.
 4. Failure path: a command exits 2 → expects the skill to route to `scrape-fb login` rather than retrying blindly.
 
-Most recent run: pending (v0.3.1).
+Most recent run: **2026-07-20, 4/4 passed** (~$1.88, ~10 min total), against package v0.3.1 installed from PyPI.
+
+| # | Scenario | Verdict | Evidence |
+|---|---|---|---|
+| V1 | "피드에서 최근 글 5개 요약" | **pass** | `Skill: facebook` → `catalog` → `status` → `feed --limit 5 --output /tmp/...` → `Read` the file (not stdout) → `rm` the file unprompted |
+| V2 | multi-hop: busiest post → its commenters → their timelines | **pass** | `feed --limit 15` → picked max `comment_count` → `comments <url>` → distinct `author_url` → `fetch` ×3; substituted 2 authors whose timelines were empty **and reported having done so** |
+| V3 | "'seoul' 관련 그룹 찾아줘" | **pass** | `search --type groups --limit 25` → took each Entity `id` → `group <id>` ×9 to check liveness; ranked by reaction/comment counts, not post frequency |
+| V4 | near-miss: "이 저장소의 파서 테스트 실행" | **pass** | `skill_invocations: []` — correctly read as ordinary repo work, ran pytest |
+
+Two things the run established beyond the scenarios themselves:
+- The **headless mechanism works**: `claude -p` spawned from Bash is authenticated here, so `run_e2e.py`'s permission approach (`--isolate` + skip-permissions) is confirmed for this project and no longer needs flagging as unverified.
+- The PII rules are followed **without being asked** — every scenario deleted its scraped temp files at the end.
+
+Defects the run surfaced (both fixed): the skill only handled a *missing* install, not an *outdated* one (the machine had 0.2.0, which lacks `catalog` and five primitives); and e2e `transcript.jsonl` files carry scraped PII while the repo's `*.json` ignore rule does not cover `.jsonl`.
 
 ## Change history
 
 - 2026-07-20 — **new**. First harness pass on this repo. Recovered a spec from disk (an empty `.claude/skills/facebook/` placeholder existed, no SKILL.md). Generated the `facebook` skill (SKILL.md + references/troubleshooting.md) after the v0.3.0 PyPI release. `validate_harness.py`: 0 errors, 0 warnings. Scope set to repo-local per user. No hooks, permissions, agents, or CLAUDE.md changes — rationale above.
 - 2026-07-20 — **improve**. Rewired the skill onto `scrape-fb catalog` (added in package v0.3.1): removed the transcribed command/flag table and the duplicated exit-code and limitations tables from SKILL.md and troubleshooting.md, leaving each pointing at the derived source. Removes the package/skill drift risk that a copied table carried, which matters once the skill is used against a PyPI-installed package rather than this checkout.
 - 2026-07-20 — **improve**. Merged `references/troubleshooting.md` into SKILL.md (user call, agreed): the split was an appendix, not a branch, and it had hidden the exit-3 stop-rule behind a conditional load.
+- 2026-07-20 — **validate**. Ran the 4 e2e scenarios: 4/4 pass. Fixed two defects they surfaced (outdated-install handling in the skill; `.jsonl` PII leak in .gitignore). Transcripts deleted after grading.

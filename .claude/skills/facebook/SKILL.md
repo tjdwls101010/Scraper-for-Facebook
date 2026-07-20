@@ -16,10 +16,12 @@ Start every task with this. It both proves the CLI is present and tells you how 
 scrape-fb catalog          # or: scrape-fb catalog --json
 ```
 
-**Two different failures mean "install or upgrade", and it is easy to only notice the first:**
+**Two different failures both mean "install or upgrade", and it is easy to only notice the first:**
 
 - `command not found` → not installed.
-- `invalid choice: 'catalog'` (or any command below coming back as an invalid choice) → installed, but **too old**. `catalog` arrived in 0.3.1 and `feed`/`comments`/`post`/`search`/`group` in 0.3.0, so a 0.2.x install has only `fetch` and will reject almost everything this skill tells you to do. Do not conclude the command doesn't exist — upgrade and retry.
+- `invalid choice: '<command>'` → installed, but **older than this skill expects**. Any command named here that argparse rejects means the same thing. Never conclude the feature doesn't exist and work around it — upgrade to the latest and retry.
+
+Always run the latest release. This skill is written against the current CLI, so an old install doesn't degrade gracefully — it silently lacks entire commands.
 
 Either way, install from PyPI into its own isolated environment:
 
@@ -35,7 +37,7 @@ If an upgrade appears to do nothing (still the old version afterward), add `--no
 
 Note that a repo checkout of this project and the installed CLI are **different things**: running from source (`PYTHONPATH=src python -m scraper_for_facebook.cli`) can be a completely different version from whatever `scrape-fb` on PATH resolves to. The catalog's reported version is the one that counts.
 
-**On checking for the newest version:** don't query PyPI at the start of every task. `scrape-fb catalog` succeeding is already the version check that matters — it exists only in 0.3.1+, and whatever it prints is by construction correct for the build you actually have, so being a release or two behind costs you nothing. Go looking for a newer version when there's a *reason* to: a command rejected as an invalid choice, or the rotation symptom described under "When something fails". Then `uv tool install --upgrade --no-cache scraper-for-facebook` and re-read the catalog.
+**On checking for the newest version:** don't query PyPI at the start of every task. A successful `scrape-fb catalog` is already the check that matters, because what it prints is by construction correct for the build you actually have. Reach for an upgrade on a *symptom* instead — a command rejected as an invalid choice, or the rotation signature under "When something fails" — with `uv tool install --upgrade --no-cache scraper-for-facebook`, then re-read the catalog.
 
 `scrape-fb catalog` prints every command with its real flags, the exit-code contract, the output contract, the object types, and the known limitations — **in one call.** Work from what it says.
 
