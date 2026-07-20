@@ -38,7 +38,7 @@ scrape-fb status          # exit 0 = ready; exit 2 = needs login; exit 3 = check
 
 If it is not installed: `uv tool install scraper-for-facebook` then `scrape-fb setup` (provisions its own isolated browser). If exit 2: **`scrape-fb login` opens a real browser window and needs a human to log in** — it detects completion automatically and times out. You cannot complete it for the user; ask them to do it, then re-check `status`.
 
-Any other non-zero exit → `references/troubleshooting.md`.
+Any other non-zero exit → see "When something fails" at the end of this file. Read it *before* improvising a retry: for one of these codes, retrying is the wrong move and can get the account banned.
 
 ## What each primitive is *for*
 
@@ -94,4 +94,16 @@ So: **write output to a temp path, not into the repo**, and never `git add` it (
 
 ## When something fails
 
-Exit codes are meaningful, and two of them are not plain errors: **4** means zero results (a true "nothing there" *or* parser drift) and **7** means `--since` could not be confirmed reached. Both need interpretation, not a retry. `scrape-fb catalog` prints what every code means; `references/troubleshooting.md` says what to *do* about each, and covers session expiry, checkpoints, and `doc_id` rotation.
+`scrape-fb catalog` prints what each exit code *means*. Below is what to *do* — and the theme is that **most failures here are informative, not transient. Retrying the same command is almost never the fix.**
+
+**Exit 3 — checkpoint. Stop immediately.** Meta has flagged the account with a security challenge, and retrying is *actively harmful*: hammering a checkpointed account is how a temporary block becomes a permanent ban. Abandon the task, tell the user their account needs clearing by hand in a real browser, and run no further `scrape-fb` commands this session. If checkpoints recur across sessions, that's a signal about volume — the fix is smaller `--limit`s and fewer hops, not a fresh login.
+
+**Exit 2 — session expired.** Routine; sessions die. `scrape-fb login` opens a real browser and needs a human — you cannot complete it. Ask the user, then re-check `status`. Note `status` inspects the response body, not just the URL, because Facebook serves its login form in place at `facebook.com` with HTTP 200 and no redirect: a dead session looks perfectly healthy from outside. If `status` says expired while a browser looks logged in, trust `status`.
+
+**Exit 4 — zero results is ambiguous.** Either genuinely nothing there (empty timeline, no hits, no comments) or parser drift / `doc_id` rotation. Distinguish with one command: run something you *know* returns data (`scrape-fb feed --limit 3`). If that also returns 0, it isn't your target — see rotation below. If the feed works, the emptiness is real; report it.
+
+**Exit 7 — `--since` unconfirmed.** You have *some* posts but can't claim they're all of them in that range. Never present it as complete: either say the range is partial, or re-run with `--mode active` (if it had fallen back) or a larger `--max-scrolls`.
+
+**`doc_id` rotation — the one real fragility.** Active mode replays Facebook query ids that rotate when Facebook ships a client build. `fetch` survives it (falls back to the browser automatically — you'll see `active mode failed ...; falling back to browser`, and it'll be much slower). `feed`, `comments`, `post`, `search`, `group` do **not**: they're active-only and simply fail. The signature is several active-only commands failing at once while `fetch --mode passive` still works. That's a package-level fix, not something to work around — tell the user and check for a newer release (`scrape-fb catalog` reports the installed version).
+
+**Not bugs, though they look like it:** a hop that fell back to passive is missing the profile's newest post (structural — re-run that hop with `--mode active`); `post`/`comments` on a **reel URL** fails with `could not find a story id` and needs a regular permalink; a comment's `reply_count` can exceed what `--replies` returned, because the count includes deeper nesting and only depth-1 is fetched.

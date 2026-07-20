@@ -24,7 +24,7 @@ From plan §8 (D7): the skill installs the published package (`uv tool install s
 | B6 | Ban-risk discipline (throwaway account, rate floors, no tight loops) | skill | facebook/SKILL.md | generated |
 | B7 | Third-party PII discipline (don't commit, minimize, delete) | skill | facebook/SKILL.md | generated |
 | B8 | Post vs Comment vs Entity, and which fields chain | skill | facebook/SKILL.md | generated |
-| B9 | Recovery when retrieval fails (expiry, checkpoint, doc_id rotation) | skill (reference) | facebook/references/troubleshooting.md | generated |
+| B9 | Recovery when retrieval fails (expiry, checkpoint, doc_id rotation) | skill | facebook/SKILL.md | generated |
 
 ## Component specs
 
@@ -37,14 +37,14 @@ From plan §8 (D7): the skill installs the published package (`uv tool install s
 - **Auto-triggerable** (no `disable-model-invocation`): retrieval is user-initiated and read-only. It is *not* a deploy-shaped side effect. Ban/PII risk is handled by in-body rules, not by hiding the skill.
 - Body: preflight (install/login/status) → the six primitives as a compact table → chaining recipes → the schema orientation → the two rule sets (ban risk, PII), each stated as principle + why.
 
-### `.claude/skills/facebook/references/troubleshooting.md`
+### Single file — no `references/`
 
-Loaded only when a command actually failed. Holds: exit-code recovery table, session-expiry vs checkpoint distinction, what `doc_id` rotation looks like and why `feed`/`comments`/`post`/`search`/`group` cannot fall back to the browser, and the reel-URL and newest-post limitations.
+Failure handling lives in SKILL.md, not a reference file. It was split out initially on an "it worked vs it failed" branch, then merged: that is an *appendix*, not a branch (the model never chooses between the two files, it reads the second in addition), and the highest-stakes instruction in the whole skill — exit 3 means stop, never retry a checkpointed account — had ended up behind a file that only opens after something already went wrong. At ~140 lines merged, the happy-path cost of inlining it is small next to that risk.
 
 ## Design rationale
 
 - **One skill, not several.** `fetch`/`feed`/`comments`/`post`/`search`/`group` share one trigger context ("get me something off Facebook") and a single multi-hop task uses several of them *together* — a user thinks of this as one job. Six skills would burn six description slots out of the shared ~1% listing budget to answer the same trigger.
-- **Only one reference file, split on a real branch.** The branch is "it worked" vs "it failed" — a normal retrieval never needs the rotation/checkpoint material, and a failing one needs all of it. Splitting the six primitives into per-command files would be splitting by volume, not by branch: a chain needs them in the same breath.
+- **One file, no `references/`.** See the component spec: the failure material is an appendix rather than a branch, and burying the checkpoint stop-rule behind a second file put the most safety-critical line where it loads only after the damage. Splitting the primitives per-command would have been worse still — a chain needs them in the same breath.
 - **Reference data is pointed at, not transcribed** — extended in v0.3.1 from schemas to the whole CLI surface. `scrape-fb catalog` reports commands, flags, exit codes, output contract, object types and limitations, all derived from the live parser and the `to_dict()`-anchored schema functions. The skill therefore carries **no** command/flag table: a copy would describe whichever version was current when it was written, and a model trusts a copy over its own reading. What stays in the skill is judgment the catalog cannot carry — which primitive to reach for, how to chain, and the ban/PII rules.
 - **No hook, no permissions entry.** Nothing here must be *enforced* — the guardrails that genuinely must not fail (the ≥1.0s active floor, the ≥0.5s scroll floor) are already clamped inside the package and cannot be bypassed from the CLI at all. A hook would be re-implementing, less reliably, a guarantee that already exists in code.
 - **No CLAUDE.md pointer.** The existing CLAUDE.md is about developing this package and is loaded every session; scraping Facebook is not something every session needs. Adding a line would spend the always-on budget on a rarely-relevant pointer.
@@ -63,3 +63,4 @@ Most recent run: pending (v0.3.1).
 
 - 2026-07-20 — **new**. First harness pass on this repo. Recovered a spec from disk (an empty `.claude/skills/facebook/` placeholder existed, no SKILL.md). Generated the `facebook` skill (SKILL.md + references/troubleshooting.md) after the v0.3.0 PyPI release. `validate_harness.py`: 0 errors, 0 warnings. Scope set to repo-local per user. No hooks, permissions, agents, or CLAUDE.md changes — rationale above.
 - 2026-07-20 — **improve**. Rewired the skill onto `scrape-fb catalog` (added in package v0.3.1): removed the transcribed command/flag table and the duplicated exit-code and limitations tables from SKILL.md and troubleshooting.md, leaving each pointing at the derived source. Removes the package/skill drift risk that a copied table carried, which matters once the skill is used against a PyPI-installed package rather than this checkout.
+- 2026-07-20 — **improve**. Merged `references/troubleshooting.md` into SKILL.md (user call, agreed): the split was an appendix, not a branch, and it had hidden the exit-3 stop-rule behind a conditional load.
