@@ -8,42 +8,54 @@ allowed-tools: Bash(scrape-fb:*), Read
 
 `scrape-fb` gives you fast, structured retrieval. **You supply the navigation.** The CLI is deliberately a set of single-purpose primitives with no `crawl` command — deciding which handle to follow next is your job, and it is the whole reason this skill exists.
 
-## Step 1 — get the tool, then ask it what it can do
+## Step 1 — make sure you're on the current version
 
-Start every task with this. It both proves the CLI is present and tells you how to use the version that actually is:
+Do this before anything else, every task: compare what's installed against what PyPI has.
 
 ```bash
-scrape-fb catalog          # or: scrape-fb catalog --json
+scrape-fb --version 2>/dev/null
+curl -s --max-time 5 https://pypi.org/pypi/scraper-for-facebook/json \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['info']['version'])"
 ```
 
-**Two different failures both mean "install or upgrade", and it is easy to only notice the first:**
+If they differ, upgrade **now, before starting work** — not later, mid-task. Upgrading between steps of a running job can change a flag or an output shape underneath you and turn a clean failure into a baffling one; upgrading before anything is in flight is free.
+
+Don't rely on a command erroring to tell you you're behind. That signal only fires when a release *adds* a command — a release that fixes a bug or changes a default is invisible to it, and "my install still works" is not evidence of being current. `catalog` describing your build correctly says nothing about whether a newer build exists.
+
+Being current matters more here than for most tools: the single most likely way this package breaks is Facebook rotating the query ids it replays, and the fix ships as a release. "Behind on version" and "silently returning nothing" are the same problem often enough that the check pays for itself.
+
+If PyPI is unreachable, **carry on with what's installed** — a version check is a nicety, not a gate, and blocking a task that would have worked is the worse failure.
+
+Two failure shapes also mean install-or-upgrade, if you skipped the check:
 
 - `command not found` → not installed.
-- `invalid choice: '<command>'` → installed, but **older than this skill expects**. Any command named here that argparse rejects means the same thing. Never conclude the feature doesn't exist and work around it — upgrade to the latest and retry.
+- `invalid choice: '<command>'` → installed but older than this skill expects. Never conclude the feature doesn't exist and work around it.
 
-Always run the latest release. This skill is written against the current CLI, so an old install doesn't degrade gracefully — it silently lacks entire commands.
-
-Either way, install from PyPI into its own isolated environment:
+Install or upgrade from PyPI into its own isolated environment:
 
 ```bash
 uv tool install --upgrade scraper-for-facebook     # or: pipx install --force scraper-for-facebook
 scrape-fb setup                                    # one-time: provisions its own browser
-scrape-fb catalog                                  # confirm: it should now print a version >= 0.3.1
+scrape-fb --version                                # confirm it now matches PyPI
 ```
 
 Use `uv tool` or `pipx`, **not** `pip install` into a virtualenv you share with anything else. This package depends on `scrapling[fetchers]`, which pins exact Playwright/patchright versions — dropping it into a shared environment can fail to resolve, or silently break the other Playwright-based tool already living there. If neither `uv` nor `pipx` exists, install one rather than reaching for bare `pip`.
 
 If an upgrade appears to do nothing (still the old version afterward), add `--no-cache`: `uv` caches the package index, so a release published minutes ago can be invisible to a plain `uv tool install --upgrade` while being perfectly present on PyPI.
 
-Note that a repo checkout of this project and the installed CLI are **different things**: running from source (`PYTHONPATH=src python -m scraper_for_facebook.cli`) can be a completely different version from whatever `scrape-fb` on PATH resolves to. The catalog's reported version is the one that counts.
+Note that a repo checkout of this project and the installed CLI are **different things**: running from source (`PYTHONPATH=src python -m scraper_for_facebook.cli`) can be a completely different version from whatever `scrape-fb` on PATH resolves to. The version on PATH is the one that counts.
 
-**On checking for the newest version:** don't query PyPI at the start of every task. A successful `scrape-fb catalog` is already the check that matters, because what it prints is by construction correct for the build you actually have. Reach for an upgrade on a *symptom* instead — a command rejected as an invalid choice, or the rotation signature under "When something fails" — with `uv tool install --upgrade --no-cache scraper-for-facebook`, then re-read the catalog.
+## Step 2 — ask the tool what it can do
+
+```bash
+scrape-fb catalog          # or: scrape-fb catalog --json
+```
 
 `scrape-fb catalog` prints every command with its real flags, the exit-code contract, the output contract, the object types, and the known limitations — **in one call.** Work from what it says.
 
 This file deliberately does **not** restate that list. The catalog is generated from the CLI's own parser, so it is correct for the version actually installed; a table copied into this file would silently describe the wrong version the moment the package updates, and you'd trust the copy over the truth. Anything you need to *call* a command comes from the catalog. What follows is only what the catalog can't carry: how to decide what to call next.
 
-## Step 2 — check the session
+## Step 3 — check the session
 
 Retrieval needs a logged-in Facebook session. Check once at the start of a task, not before every command:
 
@@ -67,7 +79,7 @@ Then `Read /tmp/feed.json`. Always pass `--output` with a path you choose; witho
 
 ## What each primitive is *for*
 
-The catalog gives you the flags; this is the judgment about which to reach for.
+The catalog gives you the flags; this is the judgment about which to reach for. Two questions place any of them, including one added after this was written: **what handle does it take** (a name, a URL, a free-text query, nothing at all) and **how narrow is what it returns**. Prefer the command whose handle you already hold, and among those the narrowest — a targeted surface is fewer requests and less unrelated third-party data than a broad one filtered afterward.
 
 - **`fetch <profile>`** — one person's timeline. The only surface with a real date filter, so any "what did X post in <period>" question starts here.
 - **`feed`** — your own news feed. Use for "what's happening", never for a question about a specific person (their timeline is more complete and filterable).
@@ -89,7 +101,9 @@ Every `Post` carries `url`, `author_url`, `author_id`; every `Comment` carries `
 
 **"Find the active groups about <topic>"** → `search "<topic>" --type groups` → take each Entity's `id` → `group <id> --limit 10` to see whether it is actually alive.
 
-Two rules that keep a chain from turning into a crawl. **Bound the fan-out before you start it** — decide "the top 5 commenters", not "everyone", because each hop is a real request against a real account (see Ban risk). And **report the shape of what you did**: which hops you took, how many you skipped, and why. A chain that silently sampled 5 of 60 commenters and presents itself as "what the commenters think" is a wrong answer wearing a confident summary.
+The `--limit` values above are illustrative, not defaults to copy. Size every one from the question being asked: "is this group alive" needs a handful of posts, "what has she been arguing about this month" needs a date window and more. A number carried over from an example is a number nobody chose.
+
+Two rules that keep a chain from turning into a crawl. **Bound the fan-out before you start it** — decide the shape ("the most-engaged commenters"), not "everyone", because each hop is a real request against a real account (see Ban risk). And **report the shape of what you did**: which hops you took, how many you skipped, and why. A chain that silently sampled 5 of 60 commenters and presents itself as "what the commenters think" is a wrong answer wearing a confident summary.
 
 ## Reading the output
 
