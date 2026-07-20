@@ -22,6 +22,16 @@ class SessionExpiredError(ScraperForFacebookError):
     """
 
 
+class ActiveTransportError(ScraperForFacebookError):
+    """An active (HTTP GraphQL) request failed in a way the passive fallback may survive.
+
+    Deliberately NOT an auth error: a rotated ``doc_id``, a transport hiccup, or
+    a non-200 all land here, and the caller's correct response is to retry the
+    same target through the browser transport (recon §6) rather than to give up
+    or to tell the user to log in again.
+    """
+
+
 class ChallengeError(ScraperForFacebookError):
     """Meta has flagged the account with a security checkpoint mid-session.
 

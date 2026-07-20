@@ -13,6 +13,8 @@ import json
 import os
 import subprocess
 import sys
+import time
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
@@ -37,18 +39,49 @@ class Status(Enum):
     CHECKPOINT = "checkpoint"
 
 
-def detect_wall(url: str) -> str | None:
-    """ "checkpoint" | "login" | None, from the current page URL.
+#: Markers of the login form Facebook serves **in place**, at ``/``, with HTTP
+#: 200 and no redirect (recon §5.1). Confirmed live: a 15-day-old dead session
+#: rendered these while ``status`` happily reported ``logged_in``.
+_LOGIN_FORM_MARKERS = (
+    "caa_login_form_data",
+    "CAAFetaAYMHPasswordEntryQuery",
+    "COMET_HEADLESS_LOGIN",
+)
 
-    Best-effort pending live-probe validation (plan §7, §17 G-checkpoint) —
-    the well-known Facebook redirect targets for an account checkpoint and a
-    login wall, not yet confirmed against a live session from this codebase.
+#: What every logged-in page carries. Its absence is the positive test that
+#: catches logged-out shapes no marker list anticipated.
+_LOGGED_IN_MARKER = '"DTSGInitialData"'
+
+
+def detect_wall(url: str, html: str | None = None) -> str | None:
+    """ "checkpoint" | "login" | None for the current page.
+
+    The URL alone is not sufficient and was the source of a real false
+    positive: Facebook serves the login form at ``https://www.facebook.com/``
+    with HTTP 200 and **no redirect**, so a URL check sees a perfectly healthy
+    page and reports a dead session as live (recon §5.1). When ``html`` is
+    supplied the response body is checked too — both for login-form markers and
+    for the *absence* of the token every logged-in page carries.
     """
     if "/checkpoint/" in url:
         return "checkpoint"
     if "/login" in url:
         return "login"
+    if html is not None:
+        if any(marker in html for marker in _LOGIN_FORM_MARKERS):
+            return "login"
+        if _LOGGED_IN_MARKER not in html:
+            return "login"
     return None
+
+
+def looks_logged_in(html: str, cookie_names: Iterable[str]) -> bool:
+    """Whether a loaded page is a genuinely logged-in one."""
+    return (
+        _LOGGED_IN_MARKER in html
+        and "c_user" in set(cookie_names)
+        and not any(marker in html for marker in _LOGIN_FORM_MARKERS)
+    )
 
 
 def _meta_path(profile_dir: Path) -> Path:
@@ -87,26 +120,48 @@ def build_session(profile_dir: Path, *, headless: bool) -> DynamicSession:
     )
 
 
-def run_login(profile_dir: Path) -> bool:
-    """Headed interactive login. Returns True once no login wall is detected.
+def run_login(profile_dir: Path, *, timeout_seconds: float = 300.0) -> bool:
+    """Headed interactive login. Returns True once the session is really logged in.
 
-    The wait for the user to actually log in has to happen INSIDE
-    ``page_action`` — scrapling closes the page the instant ``fetch()``
-    returns (its ``_page_generator`` calls ``page.close()`` on exit), so
-    prompting for input *after* ``fetch()`` would be prompting over a window
-    that already closed.
+    The wait has to happen INSIDE ``page_action`` — scrapling closes the page
+    the instant ``fetch()`` returns (its ``_page_generator`` calls
+    ``page.close()`` on exit), so waiting *after* ``fetch()`` would be waiting
+    on a window that already closed.
+
+    Waits by **polling the browser's own state** rather than blocking on
+    ``input()``. The old prompt required a human at a TTY: under a
+    non-interactive driver it hung forever holding the Chromium profile lock,
+    which blocked every subsequent browser launch (recon §5.3). Polling lets an
+    agent drive login and simply time out instead of deadlocking.
     """
+    state = {"logged_in": False}
 
-    def wait_for_manual_login(page) -> None:
-        input(
-            "A browser window should now be open. Log in to Facebook there, "
-            "then press Enter here to continue... "
+    def wait_for_login(page) -> None:
+        print(
+            "A browser window is open. Log in to Facebook there — this will "
+            f"continue automatically once you are (waiting up to {timeout_seconds:.0f}s).",
+            file=sys.stderr,
         )
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            try:
+                cookies = [c["name"] for c in page.context.cookies()]
+                if looks_logged_in(page.content(), cookies):
+                    state["logged_in"] = True
+                    # Facebook finishes writing session cookies a beat after the
+                    # feed renders; leaving immediately can persist a half-built
+                    # profile that then reads as logged out.
+                    page.wait_for_timeout(2000)
+                    return
+            except Exception:  # noqa: BLE001 - mid-navigation reads race; just retry
+                pass
+            page.wait_for_timeout(2000)
+        print("Timed out waiting for login.", file=sys.stderr)
 
     with build_session(profile_dir, headless=False) as session:
-        response = session.fetch("https://www.facebook.com/", page_action=wait_for_manual_login)
+        session.fetch("https://www.facebook.com/", page_action=wait_for_login, timeout=60000)
 
-    if detect_wall(response.url) is not None:
+    if not state["logged_in"]:
         return False
     _write_login_meta(profile_dir)
     return True
@@ -115,9 +170,16 @@ def run_login(profile_dir: Path) -> bool:
 def run_status(profile_dir: Path) -> Status:
     if not profile_dir.exists():
         return Status.EXPIRED
+
+    holder: dict = {}
+
+    def _capture(page) -> None:
+        holder["html"] = page.content()
+
     with build_session(profile_dir, headless=True) as session:
-        response = session.fetch("https://www.facebook.com/", timeout=60000)
-    wall = detect_wall(response.url)
+        response = session.fetch("https://www.facebook.com/", page_action=_capture, timeout=60000)
+
+    wall = detect_wall(response.url, holder.get("html"))
     if wall == "checkpoint":
         return Status.CHECKPOINT
     if wall == "login":

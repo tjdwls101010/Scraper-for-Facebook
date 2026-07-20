@@ -66,6 +66,10 @@ class Post:
     comment_count: int | None
     share_count: int | None
     shared_post: Post | None  # attached_story (quoted/shared), one level deep
+    #: Which surface this post came from — "timeline" | "newsfeed" | "group" |
+    #: "search". Chained command outputs get mixed together by callers, so a
+    #: post has to be able to say where it came from without external context.
+    source: str
     captured_at: datetime  # UTC, when this tool captured the response
     raw: dict | None = None  # only populated when raw=True was requested
 
@@ -89,6 +93,7 @@ class Post:
             "comment_count": self.comment_count,
             "share_count": self.share_count,
             "shared_post": self.shared_post.to_dict() if self.shared_post is not None else None,
+            "source": self.source,
             "captured_at": _iso(self.captured_at),
             **({"raw": self.raw} if self.raw is not None else {}),
         }
@@ -227,6 +232,11 @@ FIELD_DESCRIPTIONS: dict[str, tuple[str, str]] = {
         "A nested post for an attached/shared story, or null. Can itself have a "
         "non-null shared_post on a share-of-a-share — nesting isn't capped at one level.",
     ),
+    "source": (
+        "string",
+        "Which surface this post came from: timeline | newsfeed | group | search. Lets "
+        "outputs from different commands be merged without losing their provenance.",
+    ),
     "captured_at": (
         "string",
         "ISO-8601 UTC timestamp of when this tool captured the response. Changes every "
@@ -269,9 +279,30 @@ def _schema_representative_post() -> Post:
         comment_count=None,
         share_count=None,
         shared_post=None,
+        source="timeline",
         captured_at=now,
         raw={},
     )
+
+
+def build_schema_fields(
+    sample: dict, descriptions: dict[str, tuple[str, str]], *, optional: set[str]
+) -> list[dict]:
+    """Field descriptors for every key a ``to_dict()`` can emit, in that order.
+
+    Anchored on real ``to_dict()`` output rather than ``dataclasses.fields`` —
+    see ``_schema_representative_post``. Shared by ``Post`` and ``Comment`` so
+    a second output object cannot drift into a second schema convention.
+    """
+    return [
+        {
+            "name": key,
+            "type": descriptions[key][0],
+            "description": descriptions[key][1],
+            "always_present": key not in optional,
+        }
+        for key in sample
+    ]
 
 
 def schema_fields() -> list[dict]:
@@ -280,16 +311,9 @@ def schema_fields() -> list[dict]:
     Each entry: ``name``, ``type`` (JSON type, not the Python annotation),
     ``description``, and ``always_present`` (False only for ``raw``).
     """
-    keys = list(_schema_representative_post().to_dict().keys())
-    return [
-        {
-            "name": key,
-            "type": FIELD_DESCRIPTIONS[key][0],
-            "description": FIELD_DESCRIPTIONS[key][1],
-            "always_present": key != "raw",
-        }
-        for key in keys
-    ]
+    return build_schema_fields(
+        _schema_representative_post().to_dict(), FIELD_DESCRIPTIONS, optional={"raw"}
+    )
 
 
 #: Maps this module's JSON-type labels to JSON Schema (draft 2020-12) type
@@ -300,6 +324,8 @@ _JSON_SCHEMA_TYPES: dict[str, dict] = {
     "string": {"type": "string"},
     "string | null": {"type": ["string", "null"]},
     "boolean": {"type": "boolean"},
+    "boolean | null": {"type": ["boolean", "null"]},
+    "integer": {"type": "integer"},
     "integer | null": {"type": ["integer", "null"]},
     "array<object>": {"type": "array", "items": {"type": "object"}},
     "object | null": {"type": ["object", "null"]},
@@ -307,9 +333,7 @@ _JSON_SCHEMA_TYPES: dict[str, dict] = {
 }
 
 
-def json_schema() -> dict:
-    """The fetch output object as JSON Schema (draft 2020-12)."""
-    fields = schema_fields()
+def build_json_schema(title: str, description: str, fields: list[dict]) -> dict:
     properties = {}
     required = []
     for field in fields:
@@ -320,15 +344,26 @@ def json_schema() -> dict:
             required.append(field["name"])
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "title": "Post",
-        "description": "One element of the fetch output array (or one NDJSON line).",
+        "title": title,
+        "description": description,
         "type": "object",
         "properties": properties,
         "required": required,
     }
 
 
-def build_post(story: dict, *, captured_at: datetime, include_raw: bool = False) -> Post:
+def json_schema() -> dict:
+    """The fetch output object as JSON Schema (draft 2020-12)."""
+    return build_json_schema(
+        "Post",
+        "One element of the fetch output array (or one NDJSON line).",
+        schema_fields(),
+    )
+
+
+def build_post(
+    story: dict, *, captured_at: datetime, source: str, include_raw: bool = False
+) -> Post:
     """Normalize one deep-merged story dict (from ``parse.parse_story_nodes``) into a ``Post``.
 
     Does NOT resolve truncated text — that requires a live permalink refetch,
@@ -345,7 +380,7 @@ def build_post(story: dict, *, captured_at: datetime, include_raw: bool = False)
 
     attached = story.get("attached_story")
     shared_post = (
-        build_post(attached, captured_at=captured_at, include_raw=include_raw)
+        build_post(attached, captured_at=captured_at, source=source, include_raw=include_raw)
         if isinstance(attached, dict)
         else None
     )
@@ -384,6 +419,7 @@ def build_post(story: dict, *, captured_at: datetime, include_raw: bool = False)
         comment_count=_find_comment_count(story),
         share_count=_find_count(story, "share_count", "count"),
         shared_post=shared_post,
+        source=source,
         captured_at=captured_at,
         raw=story if include_raw else None,
     )

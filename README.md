@@ -5,7 +5,7 @@
 [![CI](https://github.com/tjdwls101010/Scraper-for-Facebook/actions/workflows/ci.yml/badge.svg)](https://github.com/tjdwls101010/Scraper-for-Facebook/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Scrape posts from a **logged-in personal Facebook timeline** by observing the GraphQL responses your own browser session makes — no token replay, no credential injection. You log in once by hand; the browser generates its own `fb_dtsg`/`doc_id`/`lsd`, and this tool just reads what comes back.
+Read **your own logged-in Facebook** — timelines, your news feed, comments, search, groups — into a clean JSON schema, over the same `/api/graphql/` endpoint your browser already uses. You log in once by hand; the tool then uses *your own session's* `fb_dtsg`/`lsd`/cookies the way your browser uses them. **No credential injection, no foreign tokens, no Graph API, no app review.**
 
 > **Read [DISCLAIMER.md](DISCLAIMER.md) before using this.** Automating a Facebook account violates its Terms of Service, publishing this tool exposes its maintainer, and scraping other people's posts can make *you* a data controller over their personal data. Use a dedicated/throwaway account, not your primary one.
 
@@ -20,7 +20,7 @@ Scrape posts from a **logged-in personal Facebook timeline** by observing the Gr
 - [Example output](#example-output)
 - [CLI reference](#cli-reference)
 - [Guardrails](#guardrails)
-- [Limitations (v1)](#limitations-v1)
+- [Limitations](#limitations)
 - [Python API](#python-api)
 - [Documentation](#documentation)
 - [Contributing](#contributing)
@@ -28,15 +28,29 @@ Scrape posts from a **logged-in personal Facebook timeline** by observing the Gr
 
 ## Features
 
-- **No Graph API, no app review, no credential injection** — reuses your own persisted, logged-in browser profile.
-- Retrieval by count (`--limit`) or date window (`--since`/`--until`), with honest reporting of whether the requested window was actually reached (never silently reports a partial run as complete).
-- Full post schema: body text (truncation-resolved), media and link attachments, reaction/comment/share counts, pinned flag, edited time, and one level of shared/quoted posts.
+- **No Graph API, no app review, no credential injection** — reuses your own persisted, logged-in browser session.
+- **Composable primitives**: `fetch` (a timeline), `feed` (your news feed), `comments`, `post`, `search`, `group`. Every post carries `id`/`url`/`author_url`/`author_id`, so one command's output is the next one's input.
+- **Active mode (v0.3.0)**: reads GraphQL over plain HTTP — no scrolling. Faster, and `--since`/`--until` become a **precise server-side filter** instead of scroll-until-you-see-it. Falls back to the browser automatically if it fails.
+- Full post schema: body text (truncation-resolved), media and link attachments, reaction/comment/share counts, pinned flag, edited time, and one level of shared/quoted posts. Plus `Comment` and `Entity` schemas — see `scrape-fb schema`.
 - JSON or NDJSON output, plus a typed Python API (`FacebookScraper`) for programmatic use.
-- One **non-bypassable** floor on scroll pacing — the one hard limit that keeps this from being usable as a mass-scraping tool, enforced in code, not just asked for in prose.
+- **Non-bypassable** pacing floors — the hard limit that keeps this from being usable as a mass-scraping tool, enforced in code, not just asked for in prose.
 
 ## How it works
 
-`scrape-fb` never calls Facebook's Graph API and never replays a token. It drives a real, logged-in Chromium session (via [Playwright](https://playwright.dev/)) against your own persisted profile, scrolls a target timeline, and reads the same `/api/graphql/` responses your browser already receives — then parses posts out of that JSON. Because the browser generates its own `fb_dtsg`/`doc_id`/`lsd` values on every request, there's no token to steal, maintain, or refresh; the tradeoff is that this only sees what your logged-in account can already see, and it degrades whenever Facebook's response shape changes (see [Limitations](#limitations-v1)).
+`scrape-fb` never calls Facebook's Graph API, and never injects credentials or replays somebody else's token. You log in once, by hand, in a real browser; that session is persisted, and everything after that reads the same `/api/graphql/` endpoint your browser reads, with **your own** session's tokens.
+
+There are two transports over that one endpoint, and they share a single parser — so both produce byte-identical JSON and therefore identical output:
+
+| | **Active** (default) | **Passive** (fallback) |
+|---|---|---|
+| How | HTTP POST to `/api/graphql/`, paginated by cursor | Drives Chromium and scrolls, capturing the XHRs it fires |
+| Browser | Only to log in and refresh tokens | In the hot path for every fetch |
+| Speed | Seconds | Tens of seconds |
+| `--since`/`--until` | **Precise** — a server-side date filter | Best-effort; can stall before reaching the date (exit 7) |
+
+Active mode is tried first and falls back to the browser automatically when it fails — because the query ids it replays (`doc_id`s) rotate whenever Facebook ships a client build. `--mode active` or `--mode passive` forces one.
+
+The tradeoff either way: this only ever sees what your logged-in account can already see, and it degrades when Facebook's response shape changes (see [Limitations](#limitations)).
 
 ## Install
 
@@ -69,7 +83,17 @@ scrape-fb doctor
 
 # 3. Fetch the last 30 posts from a profile you're logged in and able to view.
 scrape-fb fetch https://www.facebook.com/some.profile --limit 30
+
+# ...or read your own news feed, a post's comments, or search.
+scrape-fb feed --limit 20
+scrape-fb comments https://www.facebook.com/some.profile/posts/pfbid02example --limit 50
+scrape-fb search "seoul" --type people --limit 10
 ```
+
+Because every post carries `url`, `author_url` and `author_id`, these compose:
+`feed` gives you posts, each post's `url` feeds `comments`, and each commenter's
+`author_url` feeds `fetch`. Chaining is deliberately left to the caller — this
+tool stays a set of primitives and never crawls on its own.
 
 Output defaults to a JSON file under this tool's own data directory (never your current directory or stdout — see `--output` below), because captured posts contain other people's personal data (§4 of the disclaimer) that shouldn't casually end up in a git-tracked path.
 
@@ -97,9 +121,12 @@ Each post in the JSON/NDJSON output looks like this (values below are illustrati
   "comment_count": 32,
   "share_count": 14,
   "shared_post": null,
+  "source": "timeline",
   "captured_at": "2026-07-05T03:18:13.385206Z"
 }
 ```
+
+`source` (`timeline` | `newsfeed` | `group` | `search`) is new in v0.3.0: once you start chaining commands, output from several of them ends up in one pile, and each post has to be able to say where it came from.
 
 See [Output Schema](wiki/Output-Schema.md) for a field-by-field reference, including `media`/`links`/`shared_post` shapes.
 
@@ -107,27 +134,56 @@ See [Output Schema](wiki/Output-Schema.md) for a field-by-field reference, inclu
 
 ```
 scrape-fb --version
-scrape-fb login   [--profile NAME] [--profile-dir PATH]
-scrape-fb status  [--profile NAME] [--profile-dir PATH] [--json]
+scrape-fb login    [--profile NAME] [--profile-dir PATH] [--timeout-seconds N]
+                   [--from-chrome [--chrome-profile NAME]]
+scrape-fb status   [--profile NAME] [--profile-dir PATH] [--json]
 scrape-fb setup
-scrape-fb doctor  [--profile NAME] [--profile-dir PATH]
-scrape-fb fetch <profile_url_or_username>
+scrape-fb doctor   [--profile NAME] [--profile-dir PATH]
+scrape-fb schema   [--json]
+
+scrape-fb fetch    <profile_url_or_username>   # a profile's timeline  -> Post[]
+scrape-fb feed                                 # your home news feed   -> Post[]
+scrape-fb post     <post_url>                  # one post              -> Post
+scrape-fb comments <post_url>                  # a post's comments     -> Comment[]
+scrape-fb search   <query>                     # search                -> Post[] | Entity[]
+scrape-fb group    <group_url_or_id>           # a group's feed        -> Post[]
+```
+
+Shared by every retrieval command:
+
+```
     --profile NAME            persisted login profile (default: "default")
-    --limit N                 max posts
-    --since YYYY-MM-DD        lower date bound (inclusive), best-effort (see "Limitations" below)
-    --until YYYY-MM-DD        upper date bound (inclusive)
+    --profile-dir PATH        override where the login profile is stored
+    --limit N                 max results
     --format json|ndjson      default: json
     --output PATH             default: a non-repo path under this tool's data directory
-    --scroll-pause MIN,MAX    seconds between scrolls; MIN is clamped to >= 0.5 (see "Guardrails")
-    --max-scrolls N           scroll budget (default 40)
-    --profile-dir PATH        override where the login profile is stored
+    --request-interval MIN,MAX  seconds between active requests; MIN clamped to >= 1.0
+    --max-pages N             active pagination budget (default 20)
     --headed                  show the browser (debugging)
-    --raw                     include the raw captured story node per post (debug; contains PII).
-                              Redacted (scrubbed) by default — combine with --no-redact for the
-                              truly raw, unscrubbed node (prints an on-screen PII warning).
-    --no-redact               disable redaction of --raw output (only has an effect with --raw)
+    --raw                     include the raw captured node (debug; contains PII).
+                              Redacted by default — combine with --no-redact for the
+                              truly raw node (prints an on-screen PII warning).
+    --no-redact               disable redaction of --raw output (only affects --raw)
     -v / --verbose            extra diagnostics (redaction-scrubbed by default)
 ```
+
+Command-specific:
+
+```
+fetch     --since / --until YYYY-MM-DD   date bounds (inclusive). Precise in active mode.
+          --mode auto|active|passive     transport (default: auto)
+          --scroll-pause MIN,MAX         passive only; MIN clamped to >= 0.5
+          --max-scrolls N                passive only; scroll budget (default 40)
+comments  --sort top|recent              comment ordering (default: top)
+          --replies                      also fetch replies (depth >= 1); one extra
+                                         request per comment that has any
+search    --type top|posts|people|pages|groups   (default: top)
+```
+
+`fetch`, `feed`, `post`, `search`, `group` emit `Post` objects (`search --type
+people|pages|groups` emits `Entity` objects); `comments` emits `Comment`
+objects. Run `scrape-fb schema` for every field, or `scrape-fb schema --json`
+for JSON Schema.
 
 ### Exit codes
 
@@ -145,17 +201,27 @@ A one-line summary on stderr always states the post count, observed date range, 
 
 ## Guardrails
 
-- The scroll-pause floor (`--scroll-pause`) is clamped to **≥ 0.5s and cannot be set to 0** — this is the one non-bypassable limit in this tool, and it exists both to reduce your account's checkpoint/ban risk and to keep this from being usable as a mass-scraping tool.
-- One target profile per invocation; no batch/multi-profile mode; no built-in scheduler or daemon loop.
-- Deeper `--since` runs scroll more, and more scrolling raises checkpoint risk. If you value the account, prefer shallow/recent fetches and `--headed` runs over deep history.
+Two pacing floors, one per transport. Both are clamped in code and **cannot be set to 0**, no matter how they arrive (CLI flag, env, or direct Python call):
 
-## Limitations (v1)
+- **Active**: `--request-interval` MIN is clamped to **≥ 1.0s**, jittered, and applies to *every* HTTP request including the plain GETs used to resolve ids.
+- **Passive**: `--scroll-pause` MIN is clamped to **≥ 0.5s**.
+
+The active floor exists because active mode fires HTTP POSTs with no scrolling at all — the scroll floor stops constraining anything the moment the fast transport is used, so "one hard limit that keeps this from being a mass-scraper" would quietly have become false without it.
+
+- One target per invocation; no batch/multi-target mode; no built-in scheduler, daemon loop, or `crawl` command. Chaining commands is the caller's job.
+- `--max-pages` (default 20) bounds how deep a single run paginates. Deeper runs mean more requests and more ban risk.
+- Comments with `--replies` cost one extra request per commented comment — a 100-comment post can be a lot of requests. Prefer a `--limit`.
+
+## Limitations
 
 - Facebook only — no Instagram, no Threads (see roadmap).
-- Personal-profile timeline posts only — no groups, pages, or photo albums.
-- `--since` is **best-effort**: because this tool observes pagination rather than driving it, Facebook can stall further pagination before your requested date is reached. Exit code `7` and the stderr summary tell you when that happened.
+- **`doc_id` rotation**: active mode replays query ids that change whenever Facebook ships a client build. When that happens `fetch` falls back to the browser automatically; the newer commands (`feed`, `comments`, `post`, `search`, `group`) have no passive equivalent and will error until the ids are refreshed.
+- `--since`/`--until` are precise in active mode but **best-effort in passive** (exit code `7` says so).
+- **Passive mode cannot see a profile's newest post.** The first timeline batch is server-rendered into the HTML document rather than fetched as a GraphQL XHR, so the browser-capture transport never observes it. Active mode does not have this gap.
+- `post`/`comments` need a real post permalink; **reel URLs are not supported** (a reel page embeds no story id).
+- `--replies` fetches depth-1 replies, not replies-to-replies.
 - Media is captured as URLs only (no file download) — and those URLs are signed, expire, and are scoped to your viewing session; treat them as sensitive.
-- No guaranteed deep-history reach; no incremental `--since-last` state (yet).
+- No incremental `--since-last` state (yet).
 
 ## Python API
 

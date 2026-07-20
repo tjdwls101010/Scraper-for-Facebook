@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "scraper-for-facebook"
-version = "0.2.0"
+version = "0.3.0"
 description = "Scrape your own logged-in Facebook timeline by observing the GraphQL responses your own browser session makes. No token replay, no credential injection."
 readme = "README.md"
 license = "MIT"
@@ -30,6 +30,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Opt-in --from-chrome only: AES-CBC to decrypt Chrome's cookie DB.
+# Kept out of the base install so the common path stays dependency-light.
+chrome = ["cryptography>=42"]
 dev = [
     "pytest>=8.0",
     "ruff>=0.8",

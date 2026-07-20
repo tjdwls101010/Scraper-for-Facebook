@@ -202,3 +202,69 @@ An active request built against a stale `doc_id` will fail. Mitigations the plan
   bundles and in the captured requests; a `refresh`/`--discover` step can re-harvest them
   the same way this recon did, writing them to a small on-disk registry the active client reads.
 - Treat every active call as **fallible**: on a non-story response shape, fall back, don't crash.
+
+---
+
+## 7. Phase 0 re-validation (implementation session, 2026-07-20 evening)
+
+Re-ran the recon against the same live session before writing any code. Results
+that **changed the plan's assumptions** are marked ⚠.
+
+### 7.1 doc_ids did NOT rotate
+Every id in §2 replayed successfully hours later. Rotation is still the standing
+risk (§6), but it is not a per-session certainty — the passive fallback and a
+refresh path remain the mitigation, not a constant re-harvest.
+
+### 7.2 The two gaps from the first pass are closed
+
+| Surface | Query | `doc_id` | Key variables |
+|---|---|---|---|
+| **Specific group** (was missing) | `GroupsCometFeedRegularStoriesPaginationQuery` | `27489248654050164` | `id`(group), `cursor`, `count`, `feedType:"DISCUSSION"`, `sortingSetting` |
+| **Comment pagination** (was missing) | `CommentsListComponentsPaginationQuery` | `27806180149070312` | `id`(=b64 `feedback:<id>`), `commentsAfterCursor`, `commentsAfterCount` |
+| **Comment list root / sort** | `CommentListComponentsRootQuery` | `27659404140378758` | `id`(=b64 `feedback:<id>`), **`commentsIntentToken`** |
+
+`commentsIntentToken` is the `--sort` lever: `REVERSE_CHRONOLOGICAL_UNFILTERED_INTENT_V1`
+is "newest". The comment flow is therefore **root query (sort) → pagination query
+(cursor)**, keyed by a **feedback id**, *not* a re-issued dialog query.
+
+The permalink page still fires **no** comment GraphQL (confirms §4) — but its
+server-rendered HTML **does** embed both `storyID` (`UzpfS...`) and
+`feedback.id` (`ZmVlZGJhY2s6...`), retrievable over **pure HTTP**. That is the
+URL → id bridge `comments`/`post` need, with no browser.
+
+### 7.3 ⚠ `afterTime`/`beforeTime` ARE enforced server-side — confirmed
+The first test was inconclusive (its window happened to contain every post).
+A discriminating test settled it: `beforeTime` set 1s below the newest post
+dropped that post **and surfaced an older post absent from the baseline** —
+proof of server-side filtering, not client-side truncation. `afterTime` likewise
+dropped the oldest. **Active mode gets precise `--since`/`--until`.**
+
+### 7.4 ⚠ Relay-provider flags are REQUIRED after all
+§2 called them "stale-tolerant". Measured: identical query, same doc_id —
+- **with** the ~27–30 `__relay_internal__pv__*` flags → **0 errors**
+- **without** them → **25** `missing_required_variable_value` warnings
+Posts parsed either way, so this is a *degraded*, not fatal, mode — but
+`queries.py` carries the captured flag sets rather than omitting them.
+
+### 7.5 ⚠ Pagination cursors: two delivery modes, one lookup
+Feed connections are `@stream`ed, so the connection dict often arrives with
+`edges` but **no** `page_info`. The real `page_info` lands in a **final `@defer`
+chunk** identified by `path[-1] == <connection_key>`. Each edge also carries its
+own Relay `cursor`, but the canonical next-page cursor is
+`page_info.end_cursor`. A cursor lookup must therefore handle **both** inline
+and deferred delivery — see `find_page_info()` in `graphql.py`.
+
+Connection keys: timeline `timeline_list_feed_units` · newsfeed `news_feed` ·
+group `group_feed` · search `results`.
+
+### 7.6 Cursor loop verified end-to-end (the Phase 0 gate)
+Page 1 → `end_cursor` → page 2, per surface, pure HTTP:
+
+| Surface | page 1 | page 2 | overlap | errors |
+|---|---|---|---|---|
+| timeline | 3 posts | 3 posts | **0** | 0 |
+| newsfeed | 2 posts | 6 posts | **0** | 0 |
+| group | 3 posts | 3 posts | **0** | 0 |
+| search | 4 posts | 3 posts | **0** | 0 |
+
+All parsed by the **existing** `parse.py`/`model.py`. Active mode is go for Phase 1.

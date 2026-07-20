@@ -27,6 +27,7 @@ def _make_post(id_, *, created_at=None, is_pinned=False) -> Post:
         comment_count=None,
         share_count=None,
         shared_post=None,
+        source="timeline",
         captured_at=CAPTURED_AT,
     )
 

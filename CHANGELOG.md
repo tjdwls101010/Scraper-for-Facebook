@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-20
+
+Adds an **active transport** — reading Facebook's GraphQL API over plain HTTP,
+with the browser needed only to log in — and turns the single-purpose scraper
+into a set of composable primitives. Additive: `fetch`'s existing flags and
+output schema are unchanged apart from one new field.
+
+### Added
+- **Active mode.** `fetch` now reads `/api/graphql/` over HTTP by default, paginating by cursor with no browser in the hot path, and falls back to the browser transport automatically when it fails (`--mode auto|active|passive`). Both transports share one parser, so their output is identical.
+- **New commands**, each emitting the same output contract as `fetch`:
+  - `feed` — your home news feed.
+  - `comments <post_url>` — a post's comments, `--sort top|recent`, `--replies` for depth ≥ 1.
+  - `post <post_url>` — a single post by permalink (which a feed query cannot return).
+  - `search <query>` — `--type top|posts|people|pages|groups`.
+  - `group <group_url_or_id>` — one group's feed.
+- **`Comment` and `Entity` schemas**, both covered by `scrape-fb schema` / `schema --json`.
+- `Post.source` (`timeline` | `newsfeed` | `group` | `search`) so chained output stays self-describing.
+- `scrape-fb login --from-chrome` (opt-in): import an existing session from local Chrome by decrypting its cookie DB. Needs the `chrome` extra: `pip install 'scraper-for-facebook[chrome]'`. See DISCLAIMER §6 — this is literal cookie extraction and usually imports your main account.
+- A **non-bypassable active-request floor** (`--request-interval`, MIN clamped to ≥ 1.0s, jittered), the active-mode counterpart to the scroll-pause floor. Applies to every active request, including id-resolution GETs.
+- `--max-pages` (default 20) bounds active pagination depth.
+- Opt-in live tests under `tests/live/` (`SFB_LIVE_TESTS=1`), including an active-vs-passive parity test.
+
+### Fixed
+- **`status` reported a dead session as `logged_in`.** `detect_wall()` only inspected the URL, but Facebook serves its login form in place at `https://www.facebook.com/` with HTTP 200 and no redirect. It now also inspects the response body, and treats a missing `DTSGInitialData` token as logged out.
+- **`login` could not be driven non-interactively.** It blocked on `input()`, which hung forever under a non-TTY driver while holding the Chromium profile lock, blocking every later browser launch. It now polls the browser's own state and honors `--timeout-seconds`.
+
+### Changed
+- `--since`/`--until` are now a **precise server-side filter** in active mode (verified: they change which posts the server returns, not just which are kept). They remain best-effort in passive mode, still reported via exit code 7.
+- Token refresh prefers a cheap HTTP re-read over relaunching the browser.
+- README/DISCLAIMER repositioned: active mode uses *your own session's* tokens the way your browser does — still no credential injection and no foreign-token replay — and the DISCLAIMER now covers the much larger third-party PII surface that `comments`/`feed`/`search` collect.
+
+### Known limitations
+- `feed`/`comments`/`post`/`search`/`group` are active-only: they have no passive equivalent to fall back to if a `doc_id` rotates.
+- Passive mode cannot see a profile's newest post (the first timeline batch is server-rendered, never fetched as a GraphQL XHR). Active mode can.
+- `post`/`comments` do not support reel URLs (a reel page embeds no story id).
+- `--replies` fetches depth-1 replies only.
+
 ## [0.2.0] - 2026-07-07
 
 ### Added

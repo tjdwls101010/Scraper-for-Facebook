@@ -9,10 +9,14 @@ import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from . import __version__, profiles, redact, retrieve, scroll, session
+from . import __version__, profiles, redact, retrieve, scroll, session, tokens
+from .comments import json_schema as comment_json_schema
+from .comments import schema_fields as comment_schema_fields
 from .config import (
+    DEFAULT_MAX_PAGES,
     DEFAULT_MAX_SCROLLS,
     DEFAULT_PROFILE_NAME,
+    DEFAULT_REQUEST_INTERVAL,
     DEFAULT_SCROLL_PAUSE,
     default_output_dir,
 )
@@ -24,6 +28,10 @@ from .errors import (
     SessionExpiredError,
 )
 from .model import Post, json_schema, schema_fields
+from .queries import COMMENT_SORT_TOKENS
+from .search import SEARCH_EXPERIENCE_TYPES
+from .search import json_schema as entity_json_schema
+from .search import schema_fields as entity_schema_fields
 from .session import Status
 
 
@@ -50,6 +58,72 @@ _PROFILE_DIR_HELP = (
     "Override where this profile's browser data lives "
     "(default: platform data dir, or $SFB_PROFILE_DIR)."
 )
+
+
+def _add_profile_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--profile",
+        default=DEFAULT_PROFILE_NAME,
+        help="Named login session to use (default: 'default').",
+    )
+    parser.add_argument("--profile-dir", default=None, help=_PROFILE_DIR_HELP)
+
+
+def _add_output_args(parser: argparse.ArgumentParser) -> None:
+    """The output contract every retrieval command shares (plan §4)."""
+    parser.add_argument(
+        "--limit", type=int, default=None, help="Stop after this many results (default: unbounded)."
+    )
+    parser.add_argument(
+        "--format",
+        choices=["json", "ndjson"],
+        default="json",
+        help="A single pretty-printed JSON array, or one NDJSON object per line (default: json).",
+    )
+    parser.add_argument(
+        "--output",
+        default=None,
+        help=(
+            "Where to write results (default: a timestamped file under the "
+            "platform data dir, not cwd)."
+        ),
+    )
+    parser.add_argument(
+        "--raw", action="store_true", help="Include the raw captured node per result."
+    )
+    parser.add_argument(
+        "--no-redact",
+        action="store_true",
+        help="Disable PII scrubbing on --raw output (prints an on-screen warning).",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help=(
+            "Print the full (still redaction-scrubbed) error text instead of "
+            "just the exception type name."
+        ),
+    )
+
+
+def _add_active_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--request-interval",
+        type=_parse_scroll_pause,
+        default=DEFAULT_REQUEST_INTERVAL,
+        help=(
+            "MIN,MAX seconds between active-mode requests; MIN is clamped to >= 1.0s "
+            "and cannot be bypassed (default: 1.0,2.0)."
+        ),
+    )
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=DEFAULT_MAX_PAGES,
+        help=f"Active-mode pagination ceiling (default: {DEFAULT_MAX_PAGES}).",
+    )
+    parser.add_argument("--headed", action="store_true", help="Show the browser (debugging).")
 
 
 class _ArgumentParser(argparse.ArgumentParser):
@@ -84,6 +158,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--profile-dir",
         default=None,
         help=_PROFILE_DIR_HELP,
+    )
+    login_p.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=300.0,
+        help=(
+            "How long to wait for you to finish logging in before giving up "
+            "(default: 300). Login completion is detected automatically."
+        ),
+    )
+    login_p.add_argument(
+        "--from-chrome",
+        action="store_true",
+        help=(
+            "Opt-in: import an existing Facebook session from your local Chrome instead "
+            "of logging in. This decrypts Chrome's cookies via the Keychain (may prompt) "
+            "and usually means importing your MAIN account — against this tool's "
+            "throwaway-account guidance. Needs: pip install 'scraper-for-facebook[chrome]'."
+        ),
+    )
+    login_p.add_argument(
+        "--chrome-profile",
+        default="Default",
+        help="Which Chrome profile to import from (default: Default).",
     )
 
     status_p = subparsers.add_parser("status", help="Check whether a profile is logged in.")
@@ -133,26 +231,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     fetch_p = subparsers.add_parser("fetch", help="Fetch posts from a profile timeline.")
     fetch_p.add_argument("identifier", help="Profile URL, vanity name, or numeric id.")
-    fetch_p.add_argument(
-        "--profile",
-        default=DEFAULT_PROFILE_NAME,
-        help="Named login session to use (default: 'default').",
-    )
-    fetch_p.add_argument(
-        "--profile-dir",
-        default=None,
-        help=_PROFILE_DIR_HELP,
-    )
-    fetch_p.add_argument(
-        "--limit", type=int, default=None, help="Stop after this many posts (default: unbounded)."
-    )
+    _add_profile_args(fetch_p)
+    _add_output_args(fetch_p)
+    _add_active_args(fetch_p)
     fetch_p.add_argument(
         "--since",
         type=_parse_iso_date,
         default=None,
         help=(
-            "Keep posts on/after this date YYYY-MM-DD; best-effort within "
-            "--max-scrolls (see exit 7)."
+            "Keep posts on/after this date YYYY-MM-DD. Precise in active mode "
+            "(server-side filter); best-effort within --max-scrolls when passive (see exit 7)."
         ),
     )
     fetch_p.add_argument(
@@ -162,17 +250,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Keep posts on/before this date YYYY-MM-DD.",
     )
     fetch_p.add_argument(
-        "--format",
-        choices=["json", "ndjson"],
-        default="json",
-        help="A single pretty-printed JSON array, or one NDJSON object per line (default: json).",
-    )
-    fetch_p.add_argument(
-        "--output",
-        default=None,
+        "--mode",
+        choices=["auto", "active", "passive"],
+        default="auto",
         help=(
-            "Where to write results (default: a timestamped file under the "
-            "platform data dir, not cwd)."
+            "Transport: 'active' reads the GraphQL API over HTTP (fast, precise dates), "
+            "'passive' scrolls a browser, 'auto' tries active and falls back (default: auto)."
         ),
     )
     fetch_p.add_argument(
@@ -180,8 +263,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=_parse_scroll_pause,
         default=DEFAULT_SCROLL_PAUSE,
         help=(
-            "MIN,MAX seconds between scrolls; MIN is clamped to >= 0.5s and "
-            "cannot be bypassed (default: 2.0,4.0)."
+            "Passive mode only. MIN,MAX seconds between scrolls; MIN is clamped to "
+            ">= 0.5s and cannot be bypassed (default: 2.0,4.0)."
         ),
     )
     fetch_p.add_argument(
@@ -189,36 +272,87 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_MAX_SCROLLS,
         help=(
-            "Scroll-iteration ceiling; if the budget runs out before --limit/--since is met, "
-            "the run stops with them unmet (default: 40)."
+            "Passive mode only. Scroll-iteration ceiling; if the budget runs out before "
+            "--limit/--since is met, the run stops with them unmet (default: 40)."
         ),
     )
-    fetch_p.add_argument("--headed", action="store_true", help="Show the browser (debugging).")
-    fetch_p.add_argument(
-        "--raw", action="store_true", help="Include the raw captured story node per post."
+
+    feed_p = subparsers.add_parser("feed", help="Fetch posts from your home news feed.")
+    _add_profile_args(feed_p)
+    _add_output_args(feed_p)
+    _add_active_args(feed_p)
+
+    comments_p = subparsers.add_parser("comments", help="Fetch comments on a post.")
+    comments_p.add_argument("url", help="Post permalink URL.")
+    _add_profile_args(comments_p)
+    _add_output_args(comments_p)
+    _add_active_args(comments_p)
+    comments_p.add_argument(
+        "--sort",
+        choices=sorted(COMMENT_SORT_TOKENS),
+        default="top",
+        help="Comment ordering (default: top).",
     )
-    fetch_p.add_argument(
-        "--no-redact",
-        action="store_true",
-        help="Disable PII scrubbing on --raw output (prints an on-screen warning).",
-    )
-    fetch_p.add_argument(
-        "-v",
-        "--verbose",
+    comments_p.add_argument(
+        "--replies",
         action="store_true",
         help=(
-            "Print the full (still redaction-scrubbed) error text instead of "
-            "just the exception type name."
+            "Also fetch replies (depth >= 1). Costs one extra request per commented "
+            "comment — replies are never returned inline."
         ),
     )
+
+    post_p = subparsers.add_parser("post", help="Fetch a single post by permalink URL.")
+    post_p.add_argument("url", help="Post permalink URL.")
+    _add_profile_args(post_p)
+    _add_output_args(post_p)
+    _add_active_args(post_p)
+
+    search_p = subparsers.add_parser("search", help="Search Facebook.")
+    search_p.add_argument("query", help="Search text.")
+    _add_profile_args(search_p)
+    _add_output_args(search_p)
+    _add_active_args(search_p)
+    search_p.add_argument(
+        "--type",
+        dest="search_type",
+        choices=sorted(SEARCH_EXPERIENCE_TYPES),
+        default="top",
+        help=(
+            "Which vertical to search (default: top). 'top'/'posts' return Posts; "
+            "'people'/'pages'/'groups' return Entity records."
+        ),
+    )
+
+    group_p = subparsers.add_parser("group", help="Fetch posts from a group's feed.")
+    group_p.add_argument("identifier", help="Group URL, vanity slug, or numeric id.")
+    _add_profile_args(group_p)
+    _add_output_args(group_p)
+    _add_active_args(group_p)
 
     return parser
 
 
 def _cmd_login(args: argparse.Namespace) -> int:
     profile_dir = profiles.resolve_profile_dir(args.profile, args.profile_dir)
+
+    if args.from_chrome:
+        try:
+            imported = tokens.from_chrome(args.chrome_profile)
+            tokens.save_cached(args.profile, imported)
+        except Exception as exc:
+            print(redact.redact_raw_text(f"chrome import failed: {exc}"), file=sys.stderr)
+            return 2
+        print(
+            f"Imported a Facebook session from Chrome profile {args.chrome_profile!r} "
+            f"(user {imported.user_id}). Active-mode commands will use it.\n"
+            "NOTE: this is your real Chrome account — see DISCLAIMER.md on ban risk.",
+            file=sys.stderr,
+        )
+        return 0
+
     try:
-        logged_in = session.run_login(profile_dir)
+        logged_in = session.run_login(profile_dir, timeout_seconds=args.timeout_seconds)
     except Exception as exc:
         print(redact.redact_raw_text(f"login failed: {exc}"), file=sys.stderr)
         return 1
@@ -270,12 +404,29 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 
 def _cmd_schema(args: argparse.Namespace) -> int:
     if args.json:
-        print(json.dumps(json_schema(), indent=2))
+        print(
+            json.dumps(
+                {
+                    "Post": json_schema(),
+                    "Comment": comment_json_schema(),
+                    "Entity": entity_json_schema(),
+                },
+                indent=2,
+            )
+        )
         return 0
-    print("Post — one element of the fetch output array (or one NDJSON line):\n")
+    print("Post — one element of the fetch/feed/post output (fetch, feed, search, group, post):\n")
     for field in schema_fields():
         note = "" if field["always_present"] else " (only present with --raw)"
         print(f"  {field['name']} : {field['type']}{note}")
+        print(f"      {field['description']}")
+    print("\nComment — one element of the comments output:\n")
+    for field in comment_schema_fields():
+        print(f"  {field['name']} : {field['type']}")
+        print(f"      {field['description']}")
+    print("\nEntity — a non-post search hit (search --type people|pages|groups, or top):\n")
+    for field in entity_schema_fields():
+        print(f"  {field['name']} : {field['type']}")
         print(f"      {field['description']}")
     return 0
 
@@ -314,36 +465,19 @@ def _write_output(posts: list[Post], path: Path, fmt: str) -> None:
             json.dump([post.to_dict() for post in posts], fh, ensure_ascii=False, indent=2)
 
 
-def _cmd_fetch(args: argparse.Namespace) -> int:
+def _run_retrieval(args: argparse.Namespace, call) -> tuple[retrieve.RetrieveResult | None, int]:
+    """Run a retrieval and map every failure mode onto the documented exit code."""
     try:
-        normalized_url = profiles.normalize_target_identifier(args.identifier)
-    except InvalidIdentifierError as exc:
-        print(f"invalid identifier: {exc}", file=sys.stderr)
-        return 1
-
-    profile_dir = profiles.resolve_profile_dir(args.profile, args.profile_dir)
-
-    try:
-        result = retrieve.fetch_profile(
-            normalized_url,
-            profile_dir=profile_dir,
-            headless=not args.headed,
-            limit=args.limit,
-            since=args.since,
-            until=args.until,
-            scroll_pause=args.scroll_pause,
-            max_scrolls=args.max_scrolls,
-            raw=args.raw,
-        )
+        return call(), 0
     except (LoginRequiredError, SessionExpiredError) as exc:
         print(f"{exc} Run: scrape-fb login --profile {args.profile}", file=sys.stderr)
-        return 2
+        return None, 2
     except ChallengeError as exc:
         print(str(exc), file=sys.stderr)
-        return 3
+        return None, 3
     except ProfileUnavailableError as exc:
         print(str(exc), file=sys.stderr)
-        return 5
+        return None, 5
     except Exception as exc:  # noqa: BLE001 - last-resort CLI boundary
         if args.verbose:
             print(redact.redact_raw_text(f"unexpected error: {exc}"), file=sys.stderr)
@@ -352,8 +486,197 @@ def _cmd_fetch(args: argparse.Namespace) -> int:
                 f"unexpected error: {type(exc).__name__} (rerun with -v for details)",
                 file=sys.stderr,
             )
+        return None, 1
+
+
+def _write_dicts(rows: list[dict], path: Path, fmt: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as fh:
+        if fmt == "ndjson":
+            for row in rows:
+                fh.write(json.dumps(row, ensure_ascii=False))
+                fh.write("\n")
+        else:
+            json.dump(rows, fh, ensure_ascii=False, indent=2)
+
+
+def _cmd_comments(args: argparse.Namespace) -> int:
+    profile_dir = profiles.resolve_profile_dir(args.profile, args.profile_dir)
+    result, code = _run_retrieval(
+        args,
+        lambda: retrieve.fetch_comments(
+            args.url,
+            profile_dir=profile_dir,
+            profile_name=args.profile,
+            headless=not args.headed,
+            limit=args.limit,
+            sort=args.sort,
+            replies=args.replies,
+            request_interval=args.request_interval,
+            max_pages=args.max_pages,
+        ),
+    )
+    if result is None:
+        return code
+    if not result.comments:
+        print("0 comments retrieved (the post may have none).", file=sys.stderr)
+        return 4
+
+    output_path = (
+        Path(args.output) if args.output else _default_output_path("comments", args.format)
+    )
+    _write_dicts([c.to_dict() for c in result.comments], output_path, args.format)
+    replies = sum(1 for c in result.comments if c.depth > 0)
+    print(
+        f"{len(result.comments)} comments ({replies} replies), stop reason: "
+        f"{result.stop_reason}. Saved to {output_path}",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def _cmd_post(args: argparse.Namespace) -> int:
+    profile_dir = profiles.resolve_profile_dir(args.profile, args.profile_dir)
+    result, code = _run_retrieval(
+        args,
+        lambda: retrieve.fetch_post(
+            args.url,
+            profile_dir=profile_dir,
+            profile_name=args.profile,
+            headless=not args.headed,
+            request_interval=args.request_interval,
+            raw=args.raw,
+        ),
+    )
+    if result is None:
+        return code
+
+    if args.raw and not args.no_redact:
+        _redact_raw_recursive(result)
+    output_path = Path(args.output) if args.output else _default_output_path("post", args.format)
+    _write_dicts([result.to_dict()], output_path, args.format)
+    print(
+        f"1 post by {result.author_name or 'unknown'}. Saved to {output_path}",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def _cmd_group(args: argparse.Namespace) -> int:
+    profile_dir = profiles.resolve_profile_dir(args.profile, args.profile_dir)
+    result, code = _run_retrieval(
+        args,
+        lambda: retrieve.fetch_group(
+            args.identifier,
+            profile_dir=profile_dir,
+            profile_name=args.profile,
+            headless=not args.headed,
+            limit=args.limit,
+            request_interval=args.request_interval,
+            max_pages=args.max_pages,
+            raw=args.raw,
+        ),
+    )
+    if result is None:
+        return code
+    return _emit_posts(result, args, identifier=f"group-{args.identifier}", since=None)
+
+
+def _cmd_search(args: argparse.Namespace) -> int:
+    profile_dir = profiles.resolve_profile_dir(args.profile, args.profile_dir)
+    result, code = _run_retrieval(
+        args,
+        lambda: retrieve.search(
+            args.query,
+            profile_dir=profile_dir,
+            profile_name=args.profile,
+            search_type=args.search_type,
+            headless=not args.headed,
+            limit=args.limit,
+            request_interval=args.request_interval,
+            max_pages=args.max_pages,
+            raw=args.raw,
+        ),
+    )
+    if result is None:
+        return code
+
+    if args.raw and not args.no_redact:
+        for post in result.posts:
+            _redact_raw_recursive(post)
+
+    rows = [p.to_dict() for p in result.posts] + [e.to_dict() for e in result.entities]
+    if not rows:
+        print("0 results retrieved.", file=sys.stderr)
+        return 4
+
+    output_path = (
+        Path(args.output)
+        if args.output
+        else _default_output_path(f"search-{args.query}", args.format)
+    )
+    _write_dicts(rows, output_path, args.format)
+    print(
+        f"{len(result.posts)} posts, {len(result.entities)} entities, stop reason: "
+        f"{result.stop_reason}. Saved to {output_path}",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def _cmd_feed(args: argparse.Namespace) -> int:
+    profile_dir = profiles.resolve_profile_dir(args.profile, args.profile_dir)
+    result, code = _run_retrieval(
+        args,
+        lambda: retrieve.fetch_feed(
+            profile_dir=profile_dir,
+            profile_name=args.profile,
+            headless=not args.headed,
+            limit=args.limit,
+            request_interval=args.request_interval,
+            max_pages=args.max_pages,
+            raw=args.raw,
+        ),
+    )
+    if result is None:
+        return code
+    return _emit_posts(result, args, identifier="feed", since=None)
+
+
+def _cmd_fetch(args: argparse.Namespace) -> int:
+    try:
+        normalized_url = profiles.normalize_target_identifier(args.identifier)
+    except InvalidIdentifierError as exc:
+        print(f"invalid identifier: {exc}", file=sys.stderr)
         return 1
 
+    profile_dir = profiles.resolve_profile_dir(args.profile, args.profile_dir)
+    result, code = _run_retrieval(
+        args,
+        lambda: retrieve.fetch_profile(
+            normalized_url,
+            profile_dir=profile_dir,
+            profile_name=args.profile,
+            mode=args.mode,
+            headless=not args.headed,
+            limit=args.limit,
+            since=args.since,
+            until=args.until,
+            scroll_pause=args.scroll_pause,
+            request_interval=args.request_interval,
+            max_scrolls=args.max_scrolls,
+            max_pages=args.max_pages,
+            raw=args.raw,
+        ),
+    )
+    if result is None:
+        return code
+    return _emit_posts(result, args, identifier=args.identifier, since=args.since)
+
+
+def _emit_posts(
+    result: retrieve.RetrieveResult, args: argparse.Namespace, *, identifier: str, since
+) -> int:
     if not result.posts:
         print(
             f"0 posts retrieved (stop reason: {result.stop_reason})."
@@ -381,7 +704,7 @@ def _cmd_fetch(args: argparse.Namespace) -> int:
                 _redact_raw_recursive(post)
 
     output_path = (
-        Path(args.output) if args.output else _default_output_path(args.identifier, args.format)
+        Path(args.output) if args.output else _default_output_path(identifier, args.format)
     )
     _write_output(result.posts, output_path, args.format)
 
@@ -390,8 +713,12 @@ def _cmd_fetch(args: argparse.Namespace) -> int:
     # was never independently confirmed crossed — exit 7 is reserved for
     # "we genuinely don't know whether we reached `since`" (stopped on
     # budget/stall), not for "we stopped early because we got enough posts".
-    since_inconclusive = result.stop_reason in (scroll.STOP_MAX_SCROLLS, scroll.STOP_FEED_STALLED)
-    exit_code = 7 if (args.since is not None and since_inconclusive) else 0
+    since_inconclusive = result.stop_reason in (
+        scroll.STOP_MAX_SCROLLS,
+        scroll.STOP_FEED_STALLED,
+        retrieve.STOP_MAX_PAGES,
+    )
+    exit_code = 7 if (since is not None and since_inconclusive) else 0
     oldest = result.oldest_seen.date().isoformat() if result.oldest_seen else "unknown"
     newest = result.newest_seen.date().isoformat() if result.newest_seen else "unknown"
     reached_note = " (requested --since NOT confirmed reached)" if exit_code == 7 else ""
@@ -410,6 +737,11 @@ _HANDLERS = {
     "doctor": _cmd_doctor,
     "schema": _cmd_schema,
     "fetch": _cmd_fetch,
+    "feed": _cmd_feed,
+    "comments": _cmd_comments,
+    "post": _cmd_post,
+    "search": _cmd_search,
+    "group": _cmd_group,
 }
 
 
