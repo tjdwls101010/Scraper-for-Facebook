@@ -81,6 +81,40 @@ downstream (Comment/search shaping the parser doesn't cover yet).
 Existing modules: `retrieve.py` becomes transport-agnostic (takes a `Fetcher`); `scroll.py`
 stays as the passive fetcher's engine; `session.py` gains token-extraction + the login/status fixes.
 
+## 3a. Login / session acquisition (decision A + a verified caveat)
+
+**Decision (interview):** the **isolated dedicated profile stays the default** (keeps the
+throwaway-account safety model; no dependency on the user's Chrome setup); **fix the login
+UX**; add **`--from-chrome`** as an opt-in convenience.
+
+1. **Fix the manual-login UX — the actual friction.** Replace `run_login`'s `input()` gate
+   with **browser-state polling** (treat login as done when the login form is gone / a feed
+   GraphQL query fires) or a file-signal handshake, so login is smooth and an agent can
+   drive it without a human pressing Enter in a TTY. The `input()` gate hung under Claude
+   Code's `!` and held the Chromium profile lock (recon §5.3).
+
+2. **`--from-chrome` is viable but NOT trivial — VERIFIED 2026-07-20.** The naive path
+   (copy a Chrome profile + open with scrapling `real_chrome=True`) **fails on macOS**: it
+   lands on the login form with **0 feed queries**. Root cause: **Playwright launches Chrome
+   with `--use-mock-keychain`**, so Chrome can't reach the real "Chrome Safe Storage"
+   Keychain entry and every cookie fails to decrypt → logged out. (Confirmed the user's real
+   Chrome `Default` profile *is* logged into Facebook — `c_user/xs/datr/...` present — yet
+   the copied-profile launch showed the login form.) Two realistic implementations, to
+   validate in implementation:
+   - **(a) Decrypt + inject (pycookiecheat-style, recommended).** Read the key from the
+     Keychain (`security find-generic-password -s "Chrome Safe Storage"`), derive the AES
+     key (PBKDF2-HMAC-SHA1, salt `saltysalt`, 1003 iters, 16 bytes), AES-CBC-decrypt the
+     `v10`-prefixed cookie values from the profile's `Cookies` DB, inject via
+     `context.add_cookies` / `FetcherSession(cookies=...)`. Headless-friendly, self-contained.
+     Caveat: it *is* literal cookie extraction (touches the Keychain, may prompt once) —
+     closest to the "credential injection" the positioning avoids, so opt-in + documented.
+   - **(b) CDP attach.** Connect to the user's *already-running* Chrome via `cdp_url` (Chrome
+     started with `--remote-debugging-port`); the live session already holds decrypted
+     cookies, no key handling — but needs the debug flag and drives the real browser.
+
+   Ship default = isolated profile; `--from-chrome` = opt-in via **(a)**. Keep the
+   throwaway-account guidance prominent (importing an everyday Chrome usually means a main account).
+
 ## 4. Command surface (the primitives the skill will chain)
 
 Every command emits the **same output contract** as `fetch` today (JSON array / NDJSON,

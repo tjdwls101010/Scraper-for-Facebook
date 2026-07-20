@@ -179,6 +179,18 @@ Before today, the parser had been live-tested against **one** profile, once. It 
    marker), or a `login --wait-seconds` / file-signal handshake, so an agent can drive
    login without a human pressing Enter in a TTY.
 
+4. **`--from-chrome` naive path fails (Playwright forces `--use-mock-keychain`).** Copying a
+   logged-in Chrome profile and opening it with scrapling `real_chrome=True` lands on the
+   **login form** with **0 feed queries** — Playwright's default `--use-mock-keychain`
+   launch arg prevents Chrome from decrypting cookies encrypted by the real macOS Keychain
+   "Chrome Safe Storage". The real Chrome `Default` profile was confirmed logged into
+   Facebook (cookie *metadata*: `c_user/xs/datr/sb/fr` present) yet the copy opened
+   logged-out. So `--from-chrome` needs **manual decrypt + inject** (Keychain key →
+   PBKDF2-HMAC-SHA1(salt `saltysalt`, 1003, 16) → AES-CBC on `v10`-prefixed values) or a
+   **CDP attach** to a running Chrome — see plan §3a. Detecting *which* profile holds a
+   session is cheap and non-invasive: query each profile's `Cookies` DB for a
+   `facebook.com` `c_user` row (name/domain only, no value decryption).
+
 ---
 
 ## 6. Durability risk (the one real weakness of active mode)
