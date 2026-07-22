@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for considering a contribution to `scraper-for-facebook`.
+Thanks for considering a contribution to `agentic-facebook`.
 
 This is a small, single-maintainer project. There is no CLA, no template gauntlet, and no review board — an issue or a pull request is enough. In exchange, please keep changes focused and read the two documents that shape what is acceptable here:
 
@@ -14,7 +14,7 @@ This is a small, single-maintainer project. There is no CLA, no template gauntle
 - **Bug reports** — especially the "Facebook changed something" class, where a `doc_id` rotated or a response shape moved and the parser now returns empty or partial results.
 - **Parser fixes** — when a field stops being extracted correctly.
 - **New primitives** that fit the existing composable model (a command whose output is the same contract `fetch` emits).
-- **Documentation** — `README.md`, `docs/wiki/`, and the `--help` strings. Note that `scrape-fb catalog` and `scrape-fb schema` are *derived* from the live parser and the real `to_dict()` output, not authored by hand; fix the source, not a transcription of it.
+- **Documentation** — `README.md`, `docs/wiki/`, and the `--help` strings. Note that `agentic-facebook catalog` and `agentic-facebook schema` are *derived* from the live parser and the real `to_dict()` output, not authored by hand; fix the source, not a transcription of it.
 - **Tests** — particularly around parser edge cases, using synthetic fixtures (see the rule below).
 
 ## Development setup
@@ -22,8 +22,8 @@ This is a small, single-maintainer project. There is no CLA, no template gauntle
 Requires **Python 3.11 or newer**. macOS is the first-class, tested target; the fixture, parse, and CLI layers are browser-agnostic and are exercised on Linux in CI too.
 
 ```bash
-git clone https://github.com/tjdwls101010/Scraper-for-Facebook.git
-cd Scraper-for-Facebook
+git clone https://github.com/tjdwls101010/Agentic-Facebook.git
+cd Agentic-Facebook
 
 uv venv
 uv pip install -e ".[dev]"
@@ -31,7 +31,7 @@ uv pip install -e ".[dev]"
 
 (`python -m venv .venv && pip install -e ".[dev]"` works identically if you would rather not use `uv`.)
 
-The `dev` extra pulls `pytest`, `ruff`, `pre-commit`, and `build`. There is also an optional `chrome` extra, which pulls `cryptography` — it is needed only for the opt-in `scrape-fb login --from-chrome` path, and is deliberately kept out of the base install so the common path stays dependency-light:
+The `dev` extra pulls `pytest`, `ruff`, `pre-commit`, and `build`. There is also an optional `chrome` extra, which pulls `cryptography` — it is needed only for the opt-in `agentic-facebook login --from-chrome` path, and is deliberately kept out of the base install so the common path stays dependency-light:
 
 ```bash
 uv pip install -e ".[dev,chrome]"
@@ -43,7 +43,7 @@ Then install the git hooks:
 pre-commit install
 ```
 
-Running the browser transport for real additionally needs a Chromium binary, which `scrape-fb setup` installs. You do **not** need it to run the unit tests.
+Running the browser transport for real additionally needs a Chromium binary, which `agentic-facebook setup` installs. You do **not** need it to run the unit tests.
 
 ## Tests and checks
 
@@ -55,7 +55,7 @@ python -m pytest -q tests --ignore=tests/live
 
 That is 145 tests and takes well under a second. This is the suite to run constantly while working.
 
-**Live tests** — opt-in, and they are exactly what they sound like: they hit real Facebook with a real logged-in session, so they need a **throwaway account** you are willing to lose, logged in via `scrape-fb login`. They assert shapes and invariants only, never specific content, because the account's timeline changes and asserting on real posts would bake third-party personal data into the repo.
+**Live tests** — opt-in, and they are exactly what they sound like: they hit real Facebook with a real logged-in session, so they need a **throwaway account** you are willing to lose, logged in via `agentic-facebook login`. They assert shapes and invariants only, never specific content, because the account's timeline changes and asserting on real posts would bake third-party personal data into the repo.
 
 ```bash
 SFB_LIVE_TESTS=1 python -m pytest tests/live -v
@@ -76,7 +76,7 @@ ruff format src tests
 pre-commit run --all-files
 ```
 
-**What CI enforces** on every pull request, on both macOS and Ubuntu: `ruff check .`, `ruff format --check .`, `python scripts/check_fixtures_pii.py`, and `pytest`. A separate `build-and-smoke` job builds the wheel, installs it into a clean virtualenv, and runs `scrape-fb --version`, `--help`, and `schema` — that job exists to catch a broken entry point or a missing runtime dependency, which the fixture tests cannot see. Get all of it green locally before opening a PR.
+**What CI enforces** on every pull request, on both macOS and Ubuntu: `ruff check .`, `ruff format --check .`, `python scripts/check_fixtures_pii.py`, and `pytest`. A separate `build-and-smoke` job builds the wheel, installs it into a clean virtualenv, and runs `agentic-facebook --version`, `--help`, and `schema` — that job exists to catch a broken entry point or a missing runtime dependency, which the fixture tests cannot see. Get all of it green locally before opening a PR.
 
 ## Never commit captured Facebook data
 
@@ -120,11 +120,11 @@ Behavior changes should also reach the places that describe behavior: the `--hel
 
 ## Reporting bugs and requesting features
 
-Use the [issue tracker](https://github.com/tjdwls101010/Scraper-for-Facebook/issues).
+Use the [issue tracker](https://github.com/tjdwls101010/Agentic-Facebook/issues).
 
 For a **bug**, please include:
 
-- `scrape-fb --version`, your Python version, and your OS.
+- `agentic-facebook --version`, your Python version, and your OS.
 - The exact command you ran, and the exit code.
 - Output from a `-v`/`--verbose` run. Verbose output is passed through a redaction path that strips signed media URLs and token-shaped fields and truncates message text — but that path is a risk reduction, not a guarantee, so **read what you are about to paste** and remove anything about a real person. Never paste an `--output` file: those are the full, unredacted capture by design.
 - What you expected, and what happened instead.

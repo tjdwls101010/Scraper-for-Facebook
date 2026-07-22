@@ -1,17 +1,17 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/tjdwls101010/tjdwls101010/refs/heads/main/Images/scraper%20for%20facebook.png" alt="scraper-for-facebook" width="640">
+  <img src="https://raw.githubusercontent.com/tjdwls101010/tjdwls101010/refs/heads/main/Images/scraper%20for%20facebook.png" alt="agentic-facebook" width="640">
 </p>
 
-<h1 align="center">scraper-for-facebook</h1>
+<h1 align="center">agentic-facebook</h1>
 
 <p align="center">
   Read your own logged-in Facebook — timelines, feed, comments, search, groups — into clean JSON.
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/scraper-for-facebook/"><img src="https://img.shields.io/pypi/v/scraper-for-facebook.svg" alt="PyPI"></a>
-  <a href="https://pypi.org/project/scraper-for-facebook/"><img src="https://img.shields.io/pypi/pyversions/scraper-for-facebook.svg" alt="Python versions"></a>
-  <a href="https://github.com/tjdwls101010/Scraper-for-Facebook/actions/workflows/ci.yml"><img src="https://github.com/tjdwls101010/Scraper-for-Facebook/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://pypi.org/project/agentic-facebook/"><img src="https://img.shields.io/pypi/v/agentic-facebook.svg" alt="PyPI"></a>
+  <a href="https://pypi.org/project/agentic-facebook/"><img src="https://img.shields.io/pypi/pyversions/agentic-facebook.svg" alt="Python versions"></a>
+  <a href="https://github.com/tjdwls101010/Agentic-Facebook/actions/workflows/ci.yml"><img src="https://github.com/tjdwls101010/Agentic-Facebook/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
 </p>
 
@@ -19,7 +19,7 @@
 
 Facebook has no usable API for reading your own feed. The Graph API was closed to this years ago, and what remains needs app review for permissions it will not grant an individual. The usual workaround — automating a browser and scraping rendered HTML — is slow and breaks with every layout change.
 
-`scrape-fb` takes a different route. Facebook's own web client gets its data from a single GraphQL endpoint; this reads that same endpoint using the session **your own browser already has**. You log in once, by hand, in a real browser. After that the tool stores no password, injects no credentials, and replays nobody else's token — it makes the request your browser would have made.
+`agentic-facebook` takes a different route. Facebook's own web client gets its data from a single GraphQL endpoint; this reads that same endpoint using the session **your own browser already has**. You log in once, by hand, in a real browser. After that the tool stores no password, injects no credentials, and replays nobody else's token — it makes the request your browser would have made.
 
 > **Read [DISCLAIMER.md](DISCLAIMER.md) before using this.** Automating a Facebook account violates its Terms of Service, publishing this tool exposes its maintainer, and scraping other people's posts can make *you* a data controller over their personal data. Use a dedicated/throwaway account, not your primary one.
 
@@ -31,7 +31,7 @@ Facebook has no usable API for reading your own feed. The Graph API was closed t
 - **Fast path by default** — reads GraphQL over plain HTTP with no browser in the loop, falling back to a real browser automatically when that fails.
 - **Precise date filtering** — `--since`/`--until` are a server-side filter, not scroll-until-you-see-it.
 - **Documented output** — `Post`, `Comment` and `Entity`, as JSON or NDJSON.
-- **Self-describing** — `scrape-fb catalog` prints every command, flag, exit code and object type, generated from the code itself, so it cannot go stale.
+- **Self-describing** — `agentic-facebook catalog` prints every command, flag, exit code and object type, generated from the code itself, so it cannot go stale.
 - **Non-bypassable pacing floors** — clamped in code, not asked for in prose. This is what keeps it a personal tool rather than a mass-scraper.
 
 ## Quick start
@@ -39,19 +39,19 @@ Facebook has no usable API for reading your own feed. The Graph API was closed t
 Requires Python 3.11+. Install into an **isolated** environment — this package pins exact Playwright versions through `scrapling`, so sharing a virtualenv with another Playwright-based tool will break one of them:
 
 ```bash
-uv tool install scraper-for-facebook     # or: pipx install scraper-for-facebook
-scrape-fb setup                          # one-time: provisions its own browser
-scrape-fb login                          # opens a real browser — log in by hand
-scrape-fb status                         # exit 0 = ready
+uv tool install agentic-facebook     # or: pipx install agentic-facebook
+agentic-facebook setup                          # one-time: provisions its own browser
+agentic-facebook login                          # opens a real browser — log in by hand
+agentic-facebook status                         # exit 0 = ready
 ```
 
 Then fetch something. **Results are written to a JSON file** — only a one-line summary goes to stderr — so pass `--output` and read the file:
 
 ```bash
-scrape-fb fetch someone.profile --limit 20 --output posts.json
-scrape-fb feed --limit 10 --output feed.json
-scrape-fb comments "https://www.facebook.com/someone/posts/pfbid02example" --limit 50 --output comments.json
-scrape-fb search "seoul" --type groups --limit 10 --output groups.json
+agentic-facebook fetch someone.profile --limit 20 --output posts.json
+agentic-facebook feed --limit 10 --output feed.json
+agentic-facebook comments "https://www.facebook.com/someone/posts/pfbid02example" --limit 50 --output comments.json
+agentic-facebook search "seoul" --type groups --limit 10 --output groups.json
 ```
 
 ## Usage overview
@@ -60,12 +60,12 @@ Each command does one thing; chaining them is where the value is. A post's `url`
 
 ```bash
 # who engaged with this post, and what else do they post about?
-scrape-fb comments "<post-url>" --limit 20 --output c.json
+agentic-facebook comments "<post-url>" --limit 20 --output c.json
 #   → read c.json, collect distinct author_url, then:
-scrape-fb fetch "<author_url>" --limit 5 --output person.json
+agentic-facebook fetch "<author_url>" --limit 5 --output person.json
 ```
 
-See [Chaining Recipes](docs/wiki/Chaining-Recipes.md) for worked multi-hop examples, and run `scrape-fb catalog` for the authoritative command surface of the version you have installed.
+See [Chaining Recipes](docs/wiki/Chaining-Recipes.md) for worked multi-hop examples, and run `agentic-facebook catalog` for the authoritative command surface of the version you have installed.
 
 ## Example output
 
@@ -90,7 +90,7 @@ See [Chaining Recipes](docs/wiki/Chaining-Recipes.md) for worked multi-hop examp
 }
 ```
 
-`source` (`timeline` | `newsfeed` | `group` | `search`) means merged results from several commands stay self-describing. Full field reference: [Output Schema](docs/wiki/Output-Schema.md), or `scrape-fb schema`.
+`source` (`timeline` | `newsfeed` | `group` | `search`) means merged results from several commands stay self-describing. Full field reference: [Output Schema](docs/wiki/Output-Schema.md), or `agentic-facebook schema`.
 
 ## Documentation
 

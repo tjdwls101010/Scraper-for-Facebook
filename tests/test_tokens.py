@@ -9,9 +9,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from scraper_for_facebook import tokens as tokens_mod
-from scraper_for_facebook.errors import SessionExpiredError
-from scraper_for_facebook.tokens import SessionTokens, extract_from_page
+from agentic_facebook import tokens as tokens_mod
+from agentic_facebook.errors import SessionExpiredError
+from agentic_facebook.tokens import SessionTokens, extract_from_page
 
 #: Shaped exactly like the real embedded JSON — the token names sit in a
 #: ``["Name",[],{...}]`` triple, which is what the extraction regexes anchor on.

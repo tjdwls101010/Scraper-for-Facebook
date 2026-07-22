@@ -96,7 +96,7 @@ def _write_login_meta(profile_dir: Path) -> None:
 
 
 def session_age_seconds(profile_dir: Path) -> float | None:
-    """Seconds since the last successful ``scrape-fb login``, or ``None`` if unknown."""
+    """Seconds since the last successful ``agentic-facebook login``, or ``None`` if unknown."""
     meta_path = _meta_path(profile_dir)
     if not meta_path.exists():
         return None
@@ -210,7 +210,7 @@ def run_setup(*, force: bool = False) -> None:
     Invokes scrapling's own documented ``scrapling install`` mechanism
     in-process rather than shelling out to a bare ``scrapling`` command:
     under an isolated install (``uv tool``/``pipx``), only THIS package's own
-    console script (``scrape-fb``) is guaranteed to be on PATH — scrapling's
+    console script (``agentic-facebook``) is guaranteed to be on PATH — scrapling's
     ``scrapling`` script is not exposed by the tool installer, so invoking it
     by name would fail there even though it works in a plain dev venv.
     """

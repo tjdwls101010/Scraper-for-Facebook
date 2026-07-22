@@ -61,7 +61,7 @@ representative at an online or offline event.
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the community leaders responsible for enforcement via **GitHub's
 private vulnerability reporting on this repository**: go to the
-[repository](https://github.com/tjdwls101010/Scraper-for-Facebook) → the
+[repository](https://github.com/tjdwls101010/Agentic-Facebook) → the
 **Security** tab → **"Report a vulnerability"**, and state that your report
 concerns the Code of Conduct rather than a security issue.
 

@@ -3,7 +3,7 @@
 
 For building synthetic fixtures or re-anchoring the parser after a Facebook
 response-shape change (plan §12). Requires a profile already logged in via
-``scrape-fb login``. Output is a real capture — NEVER commit it; only
+``agentic-facebook login``. Output is a real capture — NEVER commit it; only
 ``build_fixture.py``-derived synthetic skeletons belong in tests/fixtures/.
 
 Usage: record_fixture.py <profile_url_or_username> [--profile NAME] [--limit N] [--headed]
@@ -15,8 +15,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from scraper_for_facebook import profiles, scroll
-from scraper_for_facebook.session import build_session
+from agentic_facebook import profiles, scroll
+from agentic_facebook.session import build_session
 
 SCRATCH_DIR = Path(__file__).resolve().parent.parent / "scratch"
 

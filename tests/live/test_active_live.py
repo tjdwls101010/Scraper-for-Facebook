@@ -16,7 +16,7 @@ import os
 
 import pytest
 
-from scraper_for_facebook import profiles, retrieve
+from agentic_facebook import profiles, retrieve
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("SFB_LIVE_TESTS") != "1",
@@ -31,7 +31,7 @@ TARGET = os.environ.get("SFB_LIVE_TARGET", "https://www.facebook.com/me")
 def profile_dir():
     path = profiles.resolve_profile_dir(PROFILE_NAME, None)
     if not path.exists():
-        pytest.skip(f"no login profile at {path} — run: scrape-fb login")
+        pytest.skip(f"no login profile at {path} — run: agentic-facebook login")
     return path
 
 

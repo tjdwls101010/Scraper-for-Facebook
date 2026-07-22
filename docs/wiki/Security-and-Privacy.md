@@ -1,6 +1,6 @@
 # Security and Privacy
 
-What `scrape-fb` stores on your disk, what it exposes about other people, and what you are responsible for once you run it.
+What `agentic-facebook` stores on your disk, what it exposes about other people, and what you are responsible for once you run it.
 
 > **[DISCLAIMER.md](../../DISCLAIMER.md) is the authoritative risk document.** Nothing on this page supersedes it. This page goes one level deeper into mechanics — what the files are, which bits are set, what gets scrubbed — for anyone who wants the threat model before pointing this tool at a real account.
 
@@ -12,7 +12,7 @@ Since v0.3.0 there are **two** files-on-disk that are live Facebook session cred
 
 ```mermaid
 flowchart TD
-    A[scrape-fb login<br/>real browser, you type the password] --> B[Login profile directory<br/>0700<br/>cookies + local storage]
+    A[agentic-facebook login<br/>real browser, you type the password] --> B[Login profile directory<br/>0700<br/>cookies + local storage]
     B --> C[Token extraction]
     C --> D[Token cache<br/>tokens/PROFILE.json, 0600<br/>session cookies + fb_dtsg]
     D --> E[ACTIVE mode<br/>HTTP GraphQL, no browser]
@@ -23,7 +23,7 @@ flowchart TD
 
 ### The login profile directory
 
-`scrape-fb login` opens a real Chromium window, you log in by hand, and the resulting browser profile — cookies and local storage — is persisted to a directory on disk, permissioned `0700`.
+`agentic-facebook login` opens a real Chromium window, you log in by hand, and the resulting browser profile — cookies and local storage — is persisted to a directory on disk, permissioned `0700`.
 
 That directory **is** your authenticated session. Whoever can read it can act as you on Facebook with **no password and no 2FA prompt**, because your original login already satisfied both and what remains on disk is the session state that resulted. It holds what any logged-in Chromium session for facebook.com holds: `c_user`, `xs`, `datr`, `sb` and friends, plus whatever the web client keeps in local storage.
 
@@ -63,7 +63,7 @@ If a machine is lost, stolen, or compromised:
 
 ## `--from-chrome` is different in kind
 
-`scrape-fb login --from-chrome` reads Chrome's encryption key from your macOS Keychain and **decrypts the Facebook cookies out of your everyday browser's cookie database**. That is literal cookie extraction — precisely the thing the default path is designed to avoid — which is why it is opt-in and never automatic.
+`agentic-facebook login --from-chrome` reads Chrome's encryption key from your macOS Keychain and **decrypts the Facebook cookies out of your everyday browser's cookie database**. That is literal cookie extraction — precisely the thing the default path is designed to avoid — which is why it is opt-in and never automatic.
 
 **Why it exists at all:** copying a logged-in Chrome profile and opening it with Playwright simply does not work. Playwright launches Chrome with `--use-mock-keychain`, so Chrome cannot reach the real "Chrome Safe Storage" Keychain entry, every cookie fails to decrypt, and the copy opens logged out. Decryption is the only path that works, so the choice was between doing it explicitly and not supporting the feature.
 
@@ -71,7 +71,7 @@ If a machine is lost, stolen, or compromised:
 
 The profile-listing helper is deliberately narrow about this: it reads cookie **names and domains only, never a value**, so identifying which Chrome profile has a Facebook session costs no decryption and triggers no Keychain prompt. Decryption happens only when you actually import.
 
-**Use `scrape-fb login` unless you specifically need this.**
+**Use `agentic-facebook login` unless you specifically need this.**
 
 ## You may become a data controller
 

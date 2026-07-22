@@ -11,7 +11,7 @@ from pathlib import Path
 
 import platformdirs
 
-APP_NAME = "scraper-for-facebook"
+APP_NAME = "agentic-facebook"
 
 #: capture_xhr regex passed to scrapling's DynamicSession — proven during planning;
 #: the tighter-looking r"/api/graphql/" under-captures.
@@ -77,7 +77,7 @@ def clamp_scroll_pause(pause: tuple[float, float]) -> tuple[float, float]:
     clamped_hi = max(hi, clamped_lo)
     if clamped_lo != lo or clamped_hi != hi:
         print(
-            f"scrape-fb: --scroll-pause {lo},{hi} raised to {clamped_lo},{clamped_hi} "
+            f"agentic-facebook: --scroll-pause {lo},{hi} raised to {clamped_lo},{clamped_hi} "
             f"(minimum is {MIN_SCROLL_PAUSE_SECONDS}s)",
             file=sys.stderr,
         )
@@ -96,7 +96,7 @@ def clamp_request_interval(interval: tuple[float, float]) -> tuple[float, float]
     clamped_hi = max(hi, clamped_lo)
     if clamped_lo != lo or clamped_hi != hi:
         print(
-            f"scrape-fb: --request-interval {lo},{hi} raised to {clamped_lo},{clamped_hi} "
+            f"agentic-facebook: --request-interval {lo},{hi} raised to {clamped_lo},{clamped_hi} "
             f"(minimum is {MIN_REQUEST_INTERVAL_SECONDS}s)",
             file=sys.stderr,
         )

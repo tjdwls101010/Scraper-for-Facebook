@@ -1,18 +1,18 @@
 # FAQ and Troubleshooting
 
-The failures people actually hit with `scrape-fb`, what each one means, and what to do about it.
+The failures people actually hit with `agentic-facebook`, what each one means, and what to do about it.
 
-This page describes **v0.3.1**. When it disagrees with `scrape-fb catalog` on flags or exit codes, `catalog` is right — it is derived from the installed code, this page is prose.
+This page describes **v0.3.1**. When it disagrees with `agentic-facebook catalog` on flags or exit codes, `catalog` is right — it is derived from the installed code, this page is prose.
 
 ## Start here: the exit code told you more than the message did
 
-Every `scrape-fb` run ends with an exit code that is part of the CLI's public contract. Scripts depend on these numbers, so they do not change casually. Reading the code first will save you most of the debugging on this page.
+Every `agentic-facebook` run ends with an exit code that is part of the CLI's public contract. Scripts depend on these numbers, so they do not change casually. Reading the code first will save you most of the debugging on this page.
 
 | Code | Meaning | What to DO |
 |---|---|---|
 | `0` | Success — limit met, `--since` window fully reached, or the feed genuinely ran out. | Read the output file whose path was printed on stderr. |
 | `1` | Unexpected error. | Re-run with `-v` for the full (redaction-scrubbed) detail. If it reproduces, file an issue with that output. |
-| `2` | Login required, or the session expired. | Run `scrape-fb login`. It opens a real browser and needs a human — you cannot script past this. |
+| `2` | Login required, or the session expired. | Run `agentic-facebook login`. It opens a real browser and needs a human — you cannot script past this. |
 | `3` | **CHECKPOINT** — Meta flagged the session. | **Stop. Do not retry.** Open facebook.com in a normal browser as that account and clear the challenge by hand. |
 | `4` | Zero results. | Ambiguous — see [I got 0 posts](#i-got-0-posts-and-exit-code-4) below. Do not assume the target is empty. |
 | `5` | Target unavailable — memorialized, blocked, restricted, or nonexistent. | Nothing to fix. This is a definite answer, not a transient failure; retrying with variations will not help. |
@@ -27,12 +27,12 @@ Two of these deserve emphasis.
 A script that handles these correctly looks like:
 
 ```bash
-scrape-fb fetch some.person --limit 50 --output ./out.json
+agentic-facebook fetch some.person --limit 50 --output ./out.json
 case $? in
   0) : ;;                                            # good
   7) echo "partial: --since not confirmed reached" ;; # data is usable
-  4) echo "empty — probe with: scrape-fb feed --limit 3" ;;
-  2) echo "run: scrape-fb login"; exit 1 ;;
+  4) echo "empty — probe with: agentic-facebook feed --limit 3" ;;
+  2) echo "run: agentic-facebook login"; exit 1 ;;
   3) echo "CHECKPOINT — stop, do not retry"; exit 1 ;;
   5) echo "target unavailable — do not retry"; exit 1 ;;
   *) echo "unexpected; re-run with -v"; exit 1 ;;
@@ -49,16 +49,16 @@ Exit 4 is **ambiguous by design**, and the tool cannot resolve the ambiguity for
 These look identical from the outside. To tell them apart, run a command you know should return data:
 
 ```bash
-scrape-fb feed --limit 3
+agentic-facebook feed --limit 3
 ```
 
 ```mermaid
 flowchart TD
-    A[Command exited 4] --> B[Run: scrape-fb feed --limit 3]
+    A[Command exited 4] --> B[Run: agentic-facebook feed --limit 3]
     B --> C{Did the probe return posts?}
     C -->|Yes, 3 posts| D[The tool works.<br/>Your original target really is empty.]
     C -->|No, also 0| E[Parser drift or doc_id rotation.<br/>Upgrade the package; if already current, file an issue.]
-    C -->|Exit 2| F[Session expired — scrape-fb login, then re-probe]
+    C -->|Exit 2| F[Session expired — agentic-facebook login, then re-probe]
     C -->|Exit 3| G[CHECKPOINT — stop, clear it by hand]
 ```
 
@@ -71,12 +71,12 @@ Pick a probe you have reason to trust. `feed --limit 3` is a good default becaus
 You will see this on stderr:
 
 ```
-scrape-fb: active mode failed (...); falling back to browser
+agentic-facebook: active mode failed (...); falling back to browser
 ```
 
 That message is informational, not an error — the run continued. But it tells you something worth understanding.
 
-**What active mode is.** By default `scrape-fb` talks to Facebook's GraphQL endpoint over plain HTTP, replaying the same query ids (`doc_id`) that Facebook's own web client uses, with the session tokens your logged-in browser already holds. It is much faster than driving a browser and gives server-side-precise date filtering.
+**What active mode is.** By default `agentic-facebook` talks to Facebook's GraphQL endpoint over plain HTTP, replaying the same query ids (`doc_id`) that Facebook's own web client uses, with the session tokens your logged-in browser already holds. It is much faster than driving a browser and gives server-side-precise date filtering.
 
 **What doc_id rotation is.** Those query ids are not a stable API. They are build artifacts of Facebook's web client, and when Facebook ships a new build, the ids change. A replayed id that no longer exists gets rejected, and active mode fails.
 
@@ -135,9 +135,9 @@ Facebook does not redirect an expired session to a login page. It serves the **l
 
 `status` now inspects the **response body** instead. It looks for login-form markers, and — more importantly — for the *absence* of `"DTSGInitialData"`, the token every genuinely logged-in Facebook page carries. Checking for the absence of what a good page always has catches logged-out shapes that no marker list anticipated.
 
-The two states are also easy to confuse for a different reason: your everyday Chrome being logged in says nothing about the profile `scrape-fb` uses. They are separate sessions with separate cookies. Unless you used `--from-chrome`, your browser's login and this tool's login are unrelated — one can expire while the other stays healthy.
+The two states are also easy to confuse for a different reason: your everyday Chrome being logged in says nothing about the profile `agentic-facebook` uses. They are separate sessions with separate cookies. Unless you used `--from-chrome`, your browser's login and this tool's login are unrelated — one can expire while the other stays healthy.
 
-`status` exits `0` when logged in, `2` when expired, `3` on a checkpoint. If it says expired, run `scrape-fb login`.
+`status` exits `0` when logged in, `2` when expired, `3` on a checkpoint. If it says expired, run `agentic-facebook login`.
 
 ## It's slow. Can I speed it up?
 
@@ -161,7 +161,7 @@ What you *can* do to make a run finish sooner:
 
 Not to your current directory — never to your current directory.
 
-Every retrieval command writes results to a **JSON file** and prints only a one-line summary to stderr. Nothing useful goes to stdout, so piping `scrape-fb fetch ... | jq` gets you nothing. Run the command, read the path it printed, then open that file.
+Every retrieval command writes results to a **JSON file** and prints only a one-line summary to stderr. Nothing useful goes to stdout, so piping `agentic-facebook fetch ... | jq` gets you nothing. Run the command, read the path it printed, then open that file.
 
 Without `--output`, results land under the platform data directory with a timestamped name. This is deliberate: captured posts contain third-party personal data, and defaulting to `.` would eventually drop that data into someone's git repository. Pass `--output PATH` when you want to choose the location — and see [Security and Privacy](Security-and-Privacy.md) for what you are taking responsibility for when you do.
 
@@ -172,31 +172,31 @@ Exact paths are in [Configuration](Configuration.md).
 Check what you actually have:
 
 ```bash
-scrape-fb --version
+agentic-facebook --version
 ```
 
 If that prints the old number after an upgrade, the usual cause is `uv`'s index cache serving a stale package list — it does not know a new release exists, so it "upgrades" you to the version you already have. Force it to look again:
 
 ```bash
-uv tool upgrade --no-cache scraper-for-facebook
+uv tool upgrade --no-cache agentic-facebook
 ```
 
 Or reinstall from scratch with the same flag:
 
 ```bash
-uv tool install --no-cache --force scraper-for-facebook
+uv tool install --no-cache --force agentic-facebook
 ```
 
 This matters more than a normal version bump, because `doc_id` rotation fixes ship as releases. If active-only commands are failing and you "already upgraded," verify with `--version` before concluding the fix does not work.
 
 ## Filing a bug report
 
-Open an issue at <https://github.com/tjdwls101010/Scraper-for-Facebook/issues>. Include:
+Open an issue at <https://github.com/tjdwls101010/Agentic-Facebook/issues>. Include:
 
-- Your OS and Python version, and the `scrape-fb --version` output.
+- Your OS and Python version, and the `agentic-facebook --version` output.
 - The exact command you ran and the exit code it returned.
 - The `-v`/`--verbose` stderr output. This is safe to paste — it is routed through the redaction path, which strips signed media URLs and token-shaped fields and truncates message text.
-- For a suspected parser problem: whether `scrape-fb feed --limit 3` also returns zero.
+- For a suspected parser problem: whether `agentic-facebook feed --limit 3` also returns zero.
 
 **Never paste raw captured post bodies, and never generate a bug report with `--raw --no-redact`.** `--raw` alone still scrubs the captured node; `--no-redact` turns that off entirely and prints an on-screen warning for a reason. The result is other people's names, message text, and signed media URLs in the clear, in a public issue tracker. See [DISCLAIMER.md](../../DISCLAIMER.md) for what redaction does and does not guarantee.
 

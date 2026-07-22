@@ -174,7 +174,7 @@ class ActiveFetcher:
         raw = bytes(raw)
         if looks_logged_out(raw):
             raise SessionExpiredError(
-                "Facebook rejected the session token. Log in again: scrape-fb login"
+                "Facebook rejected the session token. Log in again: agentic-facebook login"
             )
         if response.status != 200:
             raise ActiveTransportError(f"active request returned HTTP {response.status}")
@@ -205,7 +205,9 @@ class ActiveFetcher:
             else str(response.body).encode()
         )
         if looks_logged_out(raw):
-            raise SessionExpiredError("Facebook served a login page. Log in again: scrape-fb login")
+            raise SessionExpiredError(
+                "Facebook served a login page. Log in again: agentic-facebook login"
+            )
         if response.status != 200:
             raise ActiveTransportError(f"active GET returned HTTP {response.status}")
         return raw

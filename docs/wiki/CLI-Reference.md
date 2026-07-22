@@ -1,19 +1,19 @@
 # CLI Reference
 
-The authoritative flag-by-flag reference for every `scrape-fb` command — for anyone driving the tool from a shell, a script, or an agent.
+The authoritative flag-by-flag reference for every `agentic-facebook` command — for anyone driving the tool from a shell, a script, or an agent.
 
 ## Read this first: `catalog` is the real authority
 
 This page describes **v0.3.1**. The installed CLI can describe *itself*:
 
 ```bash
-scrape-fb catalog          # human/agent-readable text
-scrape-fb catalog --json   # the same content, machine-readable
+agentic-facebook catalog          # human/agent-readable text
+agentic-facebook catalog --json   # the same content, machine-readable
 ```
 
-`catalog` is **derived, never authored**: its command list and flag tables are introspected from the live `argparse` parser, its object schemas come from the same functions `scrape-fb schema` uses, and its exit codes come from `exits.DESCRIPTIONS`. It therefore cannot describe a command that doesn't exist or miss one that does.
+`catalog` is **derived, never authored**: its command list and flag tables are introspected from the live `argparse` parser, its object schemas come from the same functions `agentic-facebook schema` uses, and its exit codes come from `exits.DESCRIPTIONS`. It therefore cannot describe a command that doesn't exist or miss one that does.
 
-**If this page and `scrape-fb catalog` ever disagree, `catalog` is right for the version you actually have installed.** Use this page for the prose, the examples, and the "why"; use `catalog` for ground truth.
+**If this page and `agentic-facebook catalog` ever disagree, `catalog` is right for the version you actually have installed.** Use this page for the prose, the examples, and the "why"; use `catalog` for ground truth.
 
 ## The output contract (the single most common mistake)
 
@@ -30,7 +30,7 @@ Piping a retrieval command into `jq` gets you nothing. Read the path printed on 
 
 ```mermaid
 flowchart TD
-    A[scrape-fb retrieval command] --> B{Which transport?}
+    A[agentic-facebook retrieval command] --> B{Which transport?}
     B -->|ACTIVE, the default| C[HTTP POST to /api/graphql/<br/>paginates by cursor<br/>fast, precise dates<br/>floor: 1.0s between requests]
     B -->|PASSIVE| D[Drives Chromium and scrolls<br/>observes GraphQL responses<br/>floor: 0.5s between scrolls]
     C -->|doc_id rotated, active failed| E{Fallback supported?}
@@ -52,12 +52,12 @@ Active mode replays Facebook query ids (`doc_id`) that rotate whenever Facebook 
 ## Global options
 
 ```bash
-scrape-fb --version     # prints "scrape-fb 0.3.1" and exits 0
-scrape-fb --help        # top-level usage
-scrape-fb <cmd> --help  # per-command usage
+agentic-facebook --version     # prints "agentic-facebook 0.3.1" and exits 0
+agentic-facebook --help        # top-level usage
+agentic-facebook <cmd> --help  # per-command usage
 ```
 
-`scrape-fb` with no subcommand is a usage error. **Usage errors exit 1, not argparse's default 2** — exit 2 already means "login required or session expired" in this CLI's contract, and a script reading exit codes must be able to tell a typo'd flag from an expired session.
+`agentic-facebook` with no subcommand is a usage error. **Usage errors exit 1, not argparse's default 2** — exit 2 already means "login required or session expired" in this CLI's contract, and a script reading exit codes must be able to tell a typo'd flag from an expired session.
 
 Three flag groups recur across commands; they are documented once here and referenced below.
 
@@ -108,21 +108,21 @@ You need this once per profile, and again whenever [`status`](#status) reports t
 **Example — normal login:**
 
 ```bash
-scrape-fb login
-# stderr: Logged in. Profile saved at /Users/you/Library/Application Support/scraper-for-facebook/profiles/default
+agentic-facebook login
+# stderr: Logged in. Profile saved at /Users/you/Library/Application Support/agentic-facebook/profiles/default
 ```
 
 **Example — a second, named profile with a longer window for slow 2FA:**
 
 ```bash
-scrape-fb login --profile throwaway --timeout-seconds 600
+agentic-facebook login --profile throwaway --timeout-seconds 600
 ```
 
 **Example — import a session from Chrome:**
 
 ```bash
-pip install 'scraper-for-facebook[chrome]'
-scrape-fb login --from-chrome --chrome-profile "Profile 1"
+pip install 'agentic-facebook[chrome]'
+agentic-facebook login --from-chrome --chrome-profile "Profile 1"
 # stderr: Imported a Facebook session from Chrome profile 'Profile 1' (user 100000000000000).
 #         Active-mode commands will use it.
 ```
@@ -144,17 +144,17 @@ Check whether a profile is logged in, without doing any scraping.
 **Example:**
 
 ```bash
-scrape-fb status
+agentic-facebook status
 # stderr: status: logged_in (logged in 4213s ago)
 
-scrape-fb status --json
+agentic-facebook status --json
 # stdout: {"status": "logged_in", "session_age_seconds": 4213.0}
 ```
 
 Exit codes track the session state: `0` logged in, `2` expired, `3` checkpointed, `1` if the check itself failed. That makes `status` the right thing to gate a script on:
 
 ```bash
-scrape-fb status --profile throwaway || { echo "log in first"; exit 1; }
+agentic-facebook status --profile throwaway || { echo "log in first"; exit 1; }
 ```
 
 ## `setup`
@@ -168,10 +168,10 @@ Provision the browser (Chromium via Playwright) into an isolated cache under the
 **Example:**
 
 ```bash
-scrape-fb setup
+agentic-facebook setup
 # stderr: Browser provisioned.
 
-scrape-fb setup --force   # after a corrupted or partial install
+agentic-facebook setup --force   # after a corrupted or partial install
 ```
 
 Exit codes: `0` on success, `1` on failure.
@@ -188,7 +188,7 @@ Launch the browser against the saved profile and verify that a capture actually 
 **Example:**
 
 ```bash
-scrape-fb doctor
+agentic-facebook doctor
 ```
 
 Exit codes: `0` if the round-trip succeeded, `1` if it did not. The diagnostic message goes to stderr, redaction-scrubbed.
@@ -210,8 +210,8 @@ Print the output object schemas: `Post`, `Comment`, and `Entity`.
 **Example:**
 
 ```bash
-scrape-fb schema
-scrape-fb schema --json | jq '.Post.properties.reaction_count'
+agentic-facebook schema
+agentic-facebook schema --json | jq '.Post.properties.reaction_count'
 ```
 
 Field-by-field prose lives in [Output Schema](Output-Schema.md). Exit code: `0`.
@@ -227,9 +227,9 @@ Describe the whole CLI to a caller: every command, its flags, the exit codes, th
 **Example:**
 
 ```bash
-scrape-fb catalog
-scrape-fb catalog --json | jq -r '.commands | keys[]'
-scrape-fb catalog --json | jq -r '.exit_codes | to_entries[] | "\(.key): \(.value)"'
+agentic-facebook catalog
+agentic-facebook catalog --json | jq -r '.commands | keys[]'
+agentic-facebook catalog --json | jq -r '.exit_codes | to_entries[] | "\(.key): \(.value)"'
 ```
 
 Exit code: `0`.
@@ -259,7 +259,7 @@ Flags beyond the shared groups:
 **Example:**
 
 ```bash
-scrape-fb fetch zuck --limit 25 --since 2026-01-01 --output ~/fb/zuck.json
+agentic-facebook fetch zuck --limit 25 --since 2026-01-01 --output ~/fb/zuck.json
 # stderr: 25 posts, range 2026-01-04..2026-07-18, stop reason: limit_reached. Saved to /Users/you/fb/zuck.json
 jq -r '.[0].text' ~/fb/zuck.json
 ```
@@ -267,7 +267,7 @@ jq -r '.[0].text' ~/fb/zuck.json
 **Example — force the browser transport** (e.g. active mode is broken by a `doc_id` rotation):
 
 ```bash
-scrape-fb fetch zuck --mode passive --max-scrolls 60 --scroll-pause 3,6 --limit 50
+agentic-facebook fetch zuck --mode passive --max-scrolls 60 --scroll-pause 3,6 --limit 50
 ```
 
 > Passive mode **cannot see a profile's newest post** — the first timeline batch is server-rendered into the HTML and never fetched as a GraphQL request. Active mode can.
@@ -281,7 +281,7 @@ Flags: the shared profile, output, and active-transport groups only.
 **Example:**
 
 ```bash
-scrape-fb feed --limit 30 --format ndjson --output ~/fb/feed.ndjson
+agentic-facebook feed --limit 30 --format ndjson --output ~/fb/feed.ndjson
 # stderr: 30 posts, range 2026-07-16..2026-07-20, stop reason: limit_reached. Saved to /Users/you/fb/feed.ndjson
 ```
 
@@ -298,7 +298,7 @@ Flags: the shared groups. `--limit` and `--max-pages` are accepted but carry lit
 **Example:**
 
 ```bash
-scrape-fb post "https://www.facebook.com/zuck/posts/1234567890" --raw --output ~/fb/one.json
+agentic-facebook post "https://www.facebook.com/zuck/posts/1234567890" --raw --output ~/fb/one.json
 # stderr: 1 post by Mark Zuckerberg. Saved to /Users/you/fb/one.json
 ```
 
@@ -320,7 +320,7 @@ Flags beyond the shared groups:
 **Example:**
 
 ```bash
-scrape-fb comments "https://www.facebook.com/zuck/posts/1234567890" \
+agentic-facebook comments "https://www.facebook.com/zuck/posts/1234567890" \
   --sort recent --replies --limit 50 --output ~/fb/comments.json
 # stderr: 50 comments (18 replies), stop reason: limit_reached. Saved to /Users/you/fb/comments.json
 ```
@@ -347,7 +347,7 @@ Flags beyond the shared groups:
 **Example — find groups, then read them:**
 
 ```bash
-scrape-fb search "urban gardening" --type groups --limit 10 --output ~/fb/groups.json
+agentic-facebook search "urban gardening" --type groups --limit 10 --output ~/fb/groups.json
 # stderr: 0 posts, 10 entities, stop reason: limit_reached. Saved to /Users/you/fb/groups.json
 jq -r '.[] | "\(.name)\t\(.url)"' ~/fb/groups.json
 ```
@@ -365,7 +365,7 @@ Flags: the shared profile, output, and active-transport groups only.
 **Example:**
 
 ```bash
-scrape-fb group 123456789012345 --limit 40 --request-interval 2,4 --output ~/fb/group.json
+agentic-facebook group 123456789012345 --limit 40 --request-interval 2,4 --output ~/fb/group.json
 # stderr: 40 posts, range 2026-06-30..2026-07-20, stop reason: limit_reached. Saved to /Users/you/fb/group.json
 ```
 
@@ -375,13 +375,13 @@ The logged-in account must be able to see the group. A private group you are not
 
 ## Exit codes
 
-The contract lives in `src/scraper_for_facebook/exits.py` and is a public API — these numbers do not change without breaking someone's script.
+The contract lives in `src/agentic_facebook/exits.py` and is a public API — these numbers do not change without breaking someone's script.
 
 | Code | Name | Meaning |
 |---|---|---|
 | `0` | `OK` | Success — limit met, requested date window fully reached, or feed genuinely exhausted. |
 | `1` | `ERROR` | Unexpected error. Re-run with `-v` for the (redaction-scrubbed) detail. Also used for usage errors: bad flags, missing arguments, an invalid identifier. |
-| `2` | `LOGIN_REQUIRED` | Login required or session expired. Run `scrape-fb login` (opens a real browser; needs a human). |
+| `2` | `LOGIN_REQUIRED` | Login required or session expired. Run `agentic-facebook login` (opens a real browser; needs a human). |
 | `3` | `CHECKPOINT` | Account checkpoint — Meta flagged the session. **Do NOT retry:** hammering a checkpointed account turns a temporary block into a permanent one. |
 | `4` | `NO_RESULTS` | Zero results. Ambiguous by nature: either genuinely nothing there, or parser drift / `doc_id` rotation. Probe with a known-good command (e.g. `feed --limit 3`) to tell them apart. |
 | `5` | `TARGET_UNAVAILABLE` | Target unavailable (memorialized, blocked, restricted, or nonexistent). A definite answer, not a transient failure — do not retry with variations. |
@@ -394,11 +394,11 @@ There is no code `6`.
 **Scripting example:**
 
 ```bash
-scrape-fb fetch zuck --since 2026-01-01 --output ~/fb/zuck.json
+agentic-facebook fetch zuck --since 2026-01-01 --output ~/fb/zuck.json
 case $? in
   0) echo "complete" ;;
   7) echo "partial — raise --max-pages and re-run" ;;
-  4) echo "nothing found — probe with: scrape-fb feed --limit 3" ;;
+  4) echo "nothing found — probe with: agentic-facebook feed --limit 3" ;;
   3) echo "CHECKPOINT — stop, do not retry"; exit 1 ;;
   *) echo "failed"; exit 1 ;;
 esac

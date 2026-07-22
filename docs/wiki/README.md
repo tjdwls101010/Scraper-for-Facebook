@@ -1,6 +1,6 @@
-# scraper-for-facebook — documentation
+# agentic-facebook — documentation
 
-Full documentation for `scrape-fb`, a command-line tool that reads **your own logged-in Facebook** into clean JSON. The [repository README](../../README.md) is the short version; this is the complete one.
+Full documentation for `agentic-facebook`, a command-line tool that reads **your own logged-in Facebook** into clean JSON. The [repository README](../../README.md) is the short version; this is the complete one.
 
 > **Read [DISCLAIMER.md](../../DISCLAIMER.md) before you use this.** Automating a Facebook account violates its Terms of Service, publishing this tool exposes its maintainer, and scraping other people's posts can make *you* a data controller over their personal data. Use a dedicated or throwaway account, never your primary one.
 
@@ -8,7 +8,7 @@ Full documentation for `scrape-fb`, a command-line tool that reads **your own lo
 
 Facebook has no usable API for reading your own feed. The Graph API was closed to this years ago, and what remains requires app review for permissions it will not grant an individual. The practical alternative has been browser automation that scrapes rendered HTML — slow, and broken by every layout change.
 
-This tool takes a different route. Facebook's own web client gets its data from a single GraphQL endpoint; `scrape-fb` reads that same endpoint using the session **your own browser already has**. You log in once, by hand, in a real browser. After that the tool stores no password, injects no credentials, and replays nobody else's token — it makes the request your browser would have made.
+This tool takes a different route. Facebook's own web client gets its data from a single GraphQL endpoint; `agentic-facebook` reads that same endpoint using the session **your own browser already has**. You log in once, by hand, in a real browser. After that the tool stores no password, injects no credentials, and replays nobody else's token — it makes the request your browser would have made.
 
 What that buys you: a **profile timeline, your home feed, a post's comments, search results, or a group's feed**, each as a documented JSON object, and fast enough to chain several together to answer questions no single query answers — *what is this person's circle discussing, who engaged with this post and what else do they post about, which groups on this topic are actually alive.*
 
@@ -38,12 +38,12 @@ New to the project: [Installation](Installation.md) → [Quick Start](Quick-Star
 
 **Results go to a file.** Every retrieval command writes JSON to disk and prints only a one-line summary to stderr — nothing useful reaches stdout. Pass `--output <path>`, then read that file.
 
-**The CLI describes itself.** `scrape-fb catalog` prints every command, flag, exit code and object type, generated from the code of the version you actually have installed. Where these pages and that output disagree, the output is right and these pages are stale — please [open an issue](https://github.com/tjdwls101010/Scraper-for-Facebook/issues).
+**The CLI describes itself.** `agentic-facebook catalog` prints every command, flag, exit code and object type, generated from the code of the version you actually have installed. Where these pages and that output disagree, the output is right and these pages are stale — please [open an issue](https://github.com/tjdwls101010/Agentic-Facebook/issues).
 
 ## Elsewhere
 
 - [Main README](../../README.md) · [CHANGELOG](../../CHANGELOG.md) · [DISCLAIMER](../../DISCLAIMER.md)
-- [PyPI package](https://pypi.org/project/scraper-for-facebook/)
+- [PyPI package](https://pypi.org/project/agentic-facebook/)
 
 ---
 

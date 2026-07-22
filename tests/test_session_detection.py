@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from scraper_for_facebook.session import detect_wall, looks_logged_in
+from agentic_facebook.session import detect_wall, looks_logged_in
 
 LOGGED_IN_HTML = '<script>["DTSGInitialData",[],{"token":"tok"},258];</script>'
 

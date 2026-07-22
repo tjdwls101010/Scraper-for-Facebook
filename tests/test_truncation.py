@@ -1,4 +1,4 @@
-from scraper_for_facebook import parse, truncation
+from agentic_facebook import parse, truncation
 
 
 def test_has_truncation_marker_true_when_marker_key_present(load_fixture):

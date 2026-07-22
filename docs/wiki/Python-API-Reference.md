@@ -1,6 +1,6 @@
 # Python API Reference
 
-The public `scraper_for_facebook` Python API — `FacebookScraper`, its two retrieval methods, the result object, and the exception hierarchy — documented as it actually is in v0.3.1.
+The public `agentic_facebook` Python API — `FacebookScraper`, its two retrieval methods, the result object, and the exception hierarchy — documented as it actually is in v0.3.1.
 
 Read [DISCLAIMER.md](../../DISCLAIMER.md) before pointing any of this at an account you care about.
 
@@ -12,16 +12,16 @@ There is **no Python method** for the other surfaces. In v0.3.1 these are **CLI-
 
 | Surface | CLI | Python |
 |---|---|---|
-| Profile timeline | `scrape-fb fetch` | `fetch_profile()` / `iter_profile()` |
-| Home news feed | `scrape-fb feed` | *(none — shell out)* |
-| Comments on a post | `scrape-fb comments` | *(none — shell out)* |
-| Single post by URL | `scrape-fb post` | *(none — shell out)* |
-| Search | `scrape-fb search` | *(none — shell out)* |
-| Group feed | `scrape-fb group` | *(none — shell out)* |
+| Profile timeline | `agentic-facebook fetch` | `fetch_profile()` / `iter_profile()` |
+| Home news feed | `agentic-facebook feed` | *(none — shell out)* |
+| Comments on a post | `agentic-facebook comments` | *(none — shell out)* |
+| Single post by URL | `agentic-facebook post` | *(none — shell out)* |
+| Search | `agentic-facebook search` | *(none — shell out)* |
+| Group feed | `agentic-facebook group` | *(none — shell out)* |
 
 If you need feed, comments, post, search, or group from Python, shell out to the CLI and parse its JSON. That is the supported path, not a workaround — the CLI writes the same objects documented in [Output Schema](Output-Schema.md):
 
-Note that `scrape-fb` writes results to a **file**, not to stdout — `--output` names that file, and the progress/summary lines go to stderr. So the shell-out helper points `--output` at a path you control and reads it back:
+Note that `agentic-facebook` writes results to a **file**, not to stdout — `--output` names that file, and the progress/summary lines go to stderr. So the shell-out helper points `--output` at a path you control and reads it back:
 
 ```python
 import json
@@ -32,14 +32,14 @@ from pathlib import Path
 NO_RESULTS = 4   # zero results: no file is written and the exit code is 4, not 0
 
 def scrape_fb(*args: str) -> list[dict]:
-    """Run a scrape-fb subcommand and return its parsed results."""
+    """Run a agentic-facebook subcommand and return its parsed results."""
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "results.json"
-        proc = subprocess.run(["scrape-fb", *args, "--format", "json", "--output", str(out)])
+        proc = subprocess.run(["agentic-facebook", *args, "--format", "json", "--output", str(out)])
         if proc.returncode == NO_RESULTS:
             return []
         if proc.returncode != 0 or not out.exists():
-            raise RuntimeError(f"scrape-fb {args[0]} failed with exit code {proc.returncode}")
+            raise RuntimeError(f"agentic-facebook {args[0]} failed with exit code {proc.returncode}")
         return json.loads(out.read_text())
 
 comments = scrape_fb("comments", "https://www.facebook.com/permalink.php?story_fbid=123&id=456")
@@ -48,7 +48,7 @@ top_level = [c for c in comments if c["depth"] == 0]
 
 Exit code `4` means "zero results" and exit code `7` means "partial: `--since` was requested but never confirmed reached" — both are non-zero but neither is a crash, so decide deliberately how your wrapper treats them (the snippet above tolerates `4` and rejects `7`). The full table is in [CLI Reference](CLI-Reference.md).
 
-Check `scrape-fb <command> --help` for the exact flags each subcommand accepts, or `scrape-fb catalog` for a machine-readable description of the whole CLI — every command, its flags, the exit codes, and the output contract. Both run offline.
+Check `agentic-facebook <command> --help` for the exact flags each subcommand accepts, or `agentic-facebook catalog` for a machine-readable description of the whole CLI — every command, its flags, the exit codes, and the output contract. Both run offline.
 
 ## Contents
 
@@ -69,11 +69,11 @@ Check `scrape-fb <command> --help` for the exact flags each subcommand accepts, 
 Everything in `__all__` is importable from the top-level package:
 
 ```python
-from scraper_for_facebook import (
+from agentic_facebook import (
     FacebookScraper,
     Post, Media, LinkAttachment,
     Status, RetrieveResult,
-    ScraperForFacebookError,
+    AgenticFacebookError,
     LoginRequiredError,
     SessionExpiredError,
     ChallengeError,
@@ -86,7 +86,7 @@ from scraper_for_facebook import (
 One exception is **not** re-exported at the top level and must be imported from its own module:
 
 ```python
-from scraper_for_facebook.errors import ActiveTransportError
+from agentic_facebook.errors import ActiveTransportError
 ```
 
 ## FacebookScraper
@@ -108,7 +108,7 @@ One instance = one persisted login profile + one set of retrieval settings.
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `profile` | `"default"` | Name of the persisted login profile — the same name `scrape-fb login --profile <name>` creates. Also keys the active-mode token cache. |
+| `profile` | `"default"` | Name of the persisted login profile — the same name `agentic-facebook login --profile <name>` creates. Also keys the active-mode token cache. |
 | `headless` | `True` | Run the browser without a visible window. Set `False` when you want to watch what it does, or when a page needs a human glance. |
 | `profile_dir` | `None` | Explicit directory for the browser profile, overriding the name-based lookup. `None` resolves from `profile` — see [Configuration](Configuration.md). |
 | `scroll_pause` | `(2.0, 4.0)` | `(min, max)` seconds to wait between scrolls, sampled randomly in that range. A non-bypassable floor applies; see [Configuration](Configuration.md). |
@@ -184,11 +184,11 @@ Reports whether the instance's profile currently has a usable session. `Status` 
 | `Status.CHECKPOINT` | `"checkpoint"` | The account is flagged with a security checkpoint. Stop and resolve it in a normal browser. |
 
 ```python
-from scraper_for_facebook import FacebookScraper, Status
+from agentic_facebook import FacebookScraper, Status
 
 with FacebookScraper() as fb:
     if fb.status() is not Status.LOGGED_IN:
-        raise SystemExit("session is not usable; run scrape-fb login")
+        raise SystemExit("session is not usable; run agentic-facebook login")
 ```
 
 ## fetch_profile()
@@ -296,10 +296,10 @@ if not result.since_reached:
 
 ## Exceptions
 
-Every error this package raises inherits from `ScraperForFacebookError`, so a single `except` is a safe outer net:
+Every error this package raises inherits from `AgenticFacebookError`, so a single `except` is a safe outer net:
 
 ```
-ScraperForFacebookError
+AgenticFacebookError
 ├── LoginRequiredError        no persisted session for this profile
 ├── SessionExpiredError       a session existed but Facebook is showing a login wall
 ├── ActiveTransportError      an active HTTP GraphQL request failed (recoverable)
@@ -311,28 +311,28 @@ ScraperForFacebookError
 
 Notes that matter when you branch on these:
 
-- **`LoginRequiredError` vs `SessionExpiredError`.** The first means you never logged in on this profile; the second means the session was valid once and has since died. Both are fixed by `scrape-fb login --profile <name>`, but only the second indicates something changed underneath you.
-- **`ActiveTransportError` is not an auth error.** A rotated GraphQL `doc_id`, a transport hiccup, or a non-200 all land here, and the correct response is to retry through the browser transport — which the default mode already does for you automatically. You will normally never see it. Import it from `scraper_for_facebook.errors`, not the package root.
+- **`LoginRequiredError` vs `SessionExpiredError`.** The first means you never logged in on this profile; the second means the session was valid once and has since died. Both are fixed by `agentic-facebook login --profile <name>`, but only the second indicates something changed underneath you.
+- **`ActiveTransportError` is not an auth error.** A rotated GraphQL `doc_id`, a transport hiccup, or a non-200 all land here, and the correct response is to retry through the browser transport — which the default mode already does for you automatically. You will normally never see it. Import it from `agentic_facebook.errors`, not the package root.
 - **`ChallengeError` is never retried automatically.** Hammering a checkpointed account raises ban risk. Stop, open Facebook in a normal browser, clear the checkpoint, then log in again.
 - **`ProfileUnavailableError` is a confirmed "nothing here"**, deliberately distinct from a zero-post result — the latter could be parser drift, this one could not.
 - **`InvalidIdentifierError` is also a `ValueError`**, so existing `except ValueError` handlers catch it.
 
 ```python
-from scraper_for_facebook import (
+from agentic_facebook import (
     FacebookScraper, ChallengeError, LoginRequiredError,
-    ProfileUnavailableError, SessionExpiredError, ScraperForFacebookError,
+    ProfileUnavailableError, SessionExpiredError, AgenticFacebookError,
 )
 
 try:
     with FacebookScraper(profile="research") as fb:
         posts = fb.fetch_profile("jordan.reyes.90", limit=50)
 except (LoginRequiredError, SessionExpiredError):
-    raise SystemExit("run: scrape-fb login --profile research")
+    raise SystemExit("run: agentic-facebook login --profile research")
 except ChallengeError:
     raise SystemExit("account checkpointed — resolve it in a normal browser, do not retry")
 except ProfileUnavailableError:
     posts = []          # confirmed empty, not a parsing failure
-except ScraperForFacebookError as exc:
+except AgenticFacebookError as exc:
     raise SystemExit(f"scrape failed: {exc}")
 ```
 
@@ -364,12 +364,12 @@ A complete script: verify the session, fetch a windowed timeline, check for trun
 
 from datetime import date
 
-from scraper_for_facebook import (
+from agentic_facebook import (
     ChallengeError,
     FacebookScraper,
     LoginRequiredError,
     ProfileUnavailableError,
-    ScraperForFacebookError,
+    AgenticFacebookError,
     SessionExpiredError,
     Status,
 )
@@ -381,14 +381,14 @@ def main() -> int:
     try:
         with FacebookScraper(profile="default", headless=True, max_scrolls=60) as fb:
             if fb.status() is not Status.LOGGED_IN:
-                print("session unusable — run: scrape-fb login")
+                print("session unusable — run: agentic-facebook login")
                 return 1
 
             posts = fb.fetch_profile(TARGET, since=date(2026, 1, 1), limit=200)
             result = fb.last_result
 
     except (LoginRequiredError, SessionExpiredError):
-        print("no usable session — run: scrape-fb login")
+        print("no usable session — run: agentic-facebook login")
         return 1
     except ChallengeError:
         print("account checkpointed — resolve it in a browser before retrying")
@@ -396,7 +396,7 @@ def main() -> int:
     except ProfileUnavailableError:
         print(f"{TARGET} is unavailable (memorialized, blocked, restricted, or gone)")
         return 0
-    except ScraperForFacebookError as exc:
+    except AgenticFacebookError as exc:
         print(f"scrape failed: {exc}")
         return 1
 

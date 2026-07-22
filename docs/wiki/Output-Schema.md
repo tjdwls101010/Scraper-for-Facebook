@@ -1,6 +1,6 @@
 # Output Schema
 
-Field-by-field reference for the three object types `scrape-fb` emits — **Post**, **Comment**, and **Entity** — including how to tell them apart once outputs from different commands land in the same pile.
+Field-by-field reference for the three object types `agentic-facebook` emits — **Post**, **Comment**, and **Entity** — including how to tell them apart once outputs from different commands land in the same pile.
 
 Every command writes either a JSON array or NDJSON (one object per line). Which object type you get depends only on the command:
 
@@ -17,11 +17,11 @@ Every command writes either a JSON array or NDJSON (one object per line). Which 
 This page is written by hand and can lag the code. The machine-readable, always-current version ships inside the tool itself:
 
 ```bash
-scrape-fb schema           # human-readable, all three objects
-scrape-fb schema --json    # JSON Schema (draft 2020-12), keyed by "Post", "Comment", "Entity"
+agentic-facebook schema           # human-readable, all three objects
+agentic-facebook schema --json    # JSON Schema (draft 2020-12), keyed by "Post", "Comment", "Entity"
 ```
 
-Both run offline and need no login. If this page and `scrape-fb schema --json` ever disagree, the command is right — it is generated from the same dataclasses that produce the output.
+Both run offline and need no login. If this page and `agentic-facebook schema --json` ever disagree, the command is right — it is generated from the same dataclasses that produce the output.
 
 ## Contents
 
@@ -356,9 +356,9 @@ Decided pre-1.0 and worth relying on:
 
 - **Adding a field is a minor version bump.** `source` arriving in v0.3.0 is the model case. Write consumers that tolerate unknown keys.
 - **Reinterpreting an existing field's meaning is a breaking change.** If `created_at` still exists, it still means what this page says it means.
-- **Field order in the output matches the order in these tables** and matches `scrape-fb schema`. Don't depend on it, but it isn't random.
+- **Field order in the output matches the order in these tables** and matches `agentic-facebook schema`. Don't depend on it, but it isn't random.
 
-Every field description on this page comes from the same source as `scrape-fb schema`: the `FIELD_DESCRIPTIONS` tables that sit next to the dataclasses in `model.py`, `comments.py`, and `search.py`. Pipe `scrape-fb schema --json` into your validator and you get a real JSON Schema (draft 2020-12) per object type, with `required` reflecting exactly which keys are always present.
+Every field description on this page comes from the same source as `agentic-facebook schema`: the `FIELD_DESCRIPTIONS` tables that sit next to the dataclasses in `model.py`, `comments.py`, and `search.py`. Pipe `agentic-facebook schema --json` into your validator and you get a real JSON Schema (draft 2020-12) per object type, with `required` reflecting exactly which keys are always present.
 
 ---
 

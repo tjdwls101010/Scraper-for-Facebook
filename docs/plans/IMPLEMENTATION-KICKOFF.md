@@ -5,7 +5,7 @@ Copy everything in the box below into a new Claude Code session opened in this r
 ---
 
 ```
-scraper-for-facebook 저장소의 v0.3.0 "active-mode" 확장을 구현해줘. 이건 구현 세션이야
+agentic-facebook 저장소의 v0.3.0 "active-mode" 확장을 구현해줘. 이건 구현 세션이야
 (계획은 지난 세션에 끝났고, 계획과 구현을 분리하기 위한 것).
 
 먼저 계획 두 문서를 정독해 (docs/active-mode-expansion-plan 브랜치에 있음):

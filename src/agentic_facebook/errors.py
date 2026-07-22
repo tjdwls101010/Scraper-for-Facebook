@@ -3,18 +3,18 @@
 from __future__ import annotations
 
 
-class ScraperForFacebookError(Exception):
+class AgenticFacebookError(Exception):
     """Base class for every error this package raises."""
 
 
-class LoginRequiredError(ScraperForFacebookError):
+class LoginRequiredError(AgenticFacebookError):
     """No persisted, logged-in session exists for this profile.
 
-    Fix: ``scrape-fb login --profile <name>``.
+    Fix: ``agentic-facebook login --profile <name>``.
     """
 
 
-class SessionExpiredError(ScraperForFacebookError):
+class SessionExpiredError(AgenticFacebookError):
     """A persisted session exists but Facebook is showing a login wall.
 
     Distinct from :class:`LoginRequiredError` (never logged in) — this means the
@@ -22,7 +22,7 @@ class SessionExpiredError(ScraperForFacebookError):
     """
 
 
-class ActiveTransportError(ScraperForFacebookError):
+class ActiveTransportError(AgenticFacebookError):
     """An active (HTTP GraphQL) request failed in a way the passive fallback may survive.
 
     Deliberately NOT an auth error: a rotated ``doc_id``, a transport hiccup, or
@@ -32,14 +32,14 @@ class ActiveTransportError(ScraperForFacebookError):
     """
 
 
-class ChallengeError(ScraperForFacebookError):
+class ChallengeError(AgenticFacebookError):
     """Meta has flagged the account with a security checkpoint mid-session.
 
     Never retried automatically — hammering a checkpointed account raises ban risk.
     """
 
 
-class ProfileUnavailableError(ScraperForFacebookError):
+class ProfileUnavailableError(AgenticFacebookError):
     """The target profile is memorialized, blocked, restricted, or does not exist.
 
     Distinct from a zero-post parser-drift result: this is a confirmed, expected
@@ -47,7 +47,7 @@ class ProfileUnavailableError(ScraperForFacebookError):
     """
 
 
-class SessionClosedError(ScraperForFacebookError):
+class SessionClosedError(AgenticFacebookError):
     """An ``iter_profile()`` generator was advanced after its owning ``with`` block exited.
 
     The generator drives the browser session; it can only make progress while the
@@ -55,5 +55,5 @@ class SessionClosedError(ScraperForFacebookError):
     """
 
 
-class InvalidIdentifierError(ScraperForFacebookError, ValueError):
+class InvalidIdentifierError(AgenticFacebookError, ValueError):
     """The target profile identifier/URL failed validation (see ``profiles.py``)."""

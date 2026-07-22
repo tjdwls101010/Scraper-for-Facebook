@@ -46,7 +46,7 @@ jobs:
 
   build-and-smoke:
     # A wheel-install smoke test, WITH scrapling (a real dependency) but
-    # WITHOUT a browser binary — that's a separate, explicit `scrape-fb setup`
+    # WITHOUT a browser binary — that's a separate, explicit `agentic-facebook setup`
     # step this job never runs. This catches a wrong entry-point path, a
     # missing runtime dep, or an import that only fails once scrapling is
     # actually present (plan §13) — none of which the fixture tests touch.
@@ -79,6 +79,6 @@ jobs:
 
       - name: Smoke test the entry point
         run: |
-          smoke-venv/bin/scrape-fb --version
-          smoke-venv/bin/scrape-fb --help
-          smoke-venv/bin/scrape-fb schema
+          smoke-venv/bin/agentic-facebook --version
+          smoke-venv/bin/agentic-facebook --help
+          smoke-venv/bin/agentic-facebook schema

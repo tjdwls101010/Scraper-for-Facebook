@@ -1,4 +1,4 @@
-from scraper_for_facebook import redact
+from agentic_facebook import redact
 
 
 def test_redact_url_strips_query_on_signed_cdn_url():

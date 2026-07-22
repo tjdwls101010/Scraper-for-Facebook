@@ -25,7 +25,7 @@ DESCRIPTIONS: dict[int, str] = {
     OK: "Success — limit met, requested date window fully reached, or feed genuinely exhausted.",
     ERROR: "Unexpected error. Re-run with -v for the (redaction-scrubbed) detail.",
     LOGIN_REQUIRED: (
-        "Login required or session expired. Run: scrape-fb login "
+        "Login required or session expired. Run: agentic-facebook login "
         "(opens a real browser; needs a human)."
     ),
     CHECKPOINT: (
