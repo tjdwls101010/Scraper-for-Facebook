@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
-from scraper_for_facebook import comments as cm
-from scraper_for_facebook.retrieve import _order_comments
+from agentic_facebook import comments as cm
+from agentic_facebook.retrieve import _order_comments
 
 CAPTURED_AT = datetime(2026, 7, 20, tzinfo=UTC)
 POST_ID = "ZmVlZGJhY2s6MQ=="

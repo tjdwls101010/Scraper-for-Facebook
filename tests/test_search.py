@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from scraper_for_facebook import search
+from agentic_facebook import search
 
 CAPTURED_AT = datetime(2026, 7, 20, tzinfo=UTC)
 

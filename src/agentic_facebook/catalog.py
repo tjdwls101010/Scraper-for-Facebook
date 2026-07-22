@@ -1,4 +1,4 @@
-"""``scrape-fb catalog`` — the CLI describing itself, so nothing has to re-type it.
+"""``agentic-facebook catalog`` — the CLI describing itself, so nothing has to re-type it.
 
 The problem this solves: anything that wants to *explain* this tool (the README,
 a `.claude` skill, an agent's prompt) previously had to transcribe the command
@@ -144,7 +144,7 @@ def render_text(catalog: dict[str, Any]) -> str:
         lines.append(f"  {code}: {text}")
     lines.append("")
 
-    lines.append("OBJECT TYPES (full field descriptions: scrape-fb schema)")
+    lines.append("OBJECT TYPES (full field descriptions: agentic-facebook schema)")
     for type_name, fields in catalog["object_types"].items():
         names = ", ".join(field["name"] for field in fields)
         lines.append(f"  {type_name}: {names}")

@@ -1,6 +1,6 @@
 # Architecture
 
-How `scrape-fb` is built, and the vocabulary you need to reason about it. For anyone extending the project, debugging a failure, or deciding which transport to use.
+How `agentic-facebook` is built, and the vocabulary you need to reason about it. For anyone extending the project, debugging a failure, or deciding which transport to use.
 
 ## The one idea the whole design rests on
 
@@ -92,7 +92,7 @@ Defined in dependency order — each builds on the one before.
 
 **Every active call is treated as fallible.** A rotated `doc_id`, a transport hiccup, or a non-200 raises a recoverable error rather than crashing, because the browser path can often still read the same data a slower way.
 
-**Descriptions are derived, not written.** `scrape-fb catalog` and `scrape-fb schema` are generated from the parser and from the dataclasses' own `to_dict()` output, so they cannot drift from the code the way a hand-maintained table does.
+**Descriptions are derived, not written.** `agentic-facebook catalog` and `agentic-facebook schema` are generated from the parser and from the dataclasses' own `to_dict()` output, so they cannot drift from the code the way a hand-maintained table does.
 
 ---
 

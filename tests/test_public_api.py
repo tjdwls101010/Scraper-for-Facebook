@@ -11,9 +11,9 @@ from datetime import UTC, datetime
 
 import pytest
 
-import scraper_for_facebook as package
-from scraper_for_facebook import FacebookScraper
-from scraper_for_facebook.retrieve import RetrieveResult
+import agentic_facebook as package
+from agentic_facebook import FacebookScraper
+from agentic_facebook.retrieve import RetrieveResult
 
 
 @pytest.fixture

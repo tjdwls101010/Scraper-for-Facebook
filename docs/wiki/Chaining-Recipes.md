@@ -1,6 +1,6 @@
 # Chaining Recipes
 
-How to answer a question that no single command answers, by feeding one command's output into the next. For anyone using `scrape-fb` beyond a one-shot fetch.
+How to answer a question that no single command answers, by feeding one command's output into the next. For anyone using `agentic-facebook` beyond a one-shot fetch.
 
 ## Why there is no `crawl` command
 
@@ -34,10 +34,10 @@ Because retrieval writes JSON files rather than printing to stdout, each step is
 ## Recipe: what is one person's circle discussing?
 
 ```bash
-scrape-fb fetch someone.profile --limit 20 --output /tmp/them.json
+agentic-facebook fetch someone.profile --limit 20 --output /tmp/them.json
 # read /tmp/them.json → collect author_url from posts they shared,
 #   i.e. shared_post.author_url where shared_post is not null
-scrape-fb fetch <each author_url> --limit 5 --output /tmp/circle_N.json
+agentic-facebook fetch <each author_url> --limit 5 --output /tmp/circle_N.json
 ```
 
 The people someone *reshares* are a better signal of their circle than the people they merely react to, and reshares are already in the payload — `shared_post` carries its own author, so the first fetch gives you the whole map without extra requests.
@@ -45,9 +45,9 @@ The people someone *reshares* are a better signal of their circle than the peopl
 ## Recipe: who engaged with this post, and what are they into?
 
 ```bash
-scrape-fb comments <post-url> --sort top --limit 20 --output /tmp/c.json
+agentic-facebook comments <post-url> --sort top --limit 20 --output /tmp/c.json
 # read /tmp/c.json → collect distinct author_url (dedupe: one person often comments twice)
-scrape-fb fetch <each author_url> --limit 5 --output /tmp/person_N.json
+agentic-facebook fetch <each author_url> --limit 5 --output /tmp/person_N.json
 ```
 
 Use `--sort top` when you want the voices the thread actually amplified, `--sort recent` when you want the current state of an argument. Add `--replies` only if the back-and-forth *is* the question — it costs one extra request per commented comment, so a busy post turns into a burst.
@@ -55,9 +55,9 @@ Use `--sort top` when you want the voices the thread actually amplified, `--sort
 ## Recipe: find the groups that are actually alive
 
 ```bash
-scrape-fb search "topic" --type groups --limit 25 --output /tmp/groups.json
+agentic-facebook search "topic" --type groups --limit 25 --output /tmp/groups.json
 # read /tmp/groups.json → these are Entity records (kind: "group"), not posts
-scrape-fb group <each id> --limit 10 --output /tmp/g_N.json
+agentic-facebook group <each id> --limit 10 --output /tmp/g_N.json
 ```
 
 A search result tells you a group *exists*, never that anyone is talking in it. The second hop is what answers the question — and judge liveness by reaction and comment counts rather than posting frequency, because a group posting daily with zero engagement is an advertising board, not a community.
@@ -65,8 +65,8 @@ A search result tells you a group *exists*, never that anyone is talking in it. 
 ## Recipe: a topic across surfaces
 
 ```bash
-scrape-fb search "topic" --type posts --limit 20 --output /tmp/s.json
-scrape-fb feed --limit 30 --output /tmp/f.json
+agentic-facebook search "topic" --type posts --limit 20 --output /tmp/s.json
+agentic-facebook feed --limit 30 --output /tmp/f.json
 ```
 
 Merged results keep their provenance: every `Post` carries `source` (`timeline` · `newsfeed` · `group` · `search`), so you can pool them into one pile and still say where each came from. Dedupe on `id` — the same post genuinely can appear in both.

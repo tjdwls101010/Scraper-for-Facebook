@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] — Renamed to Agentic Facebook
+
+Renamed from the old identity (formerly PyPI `scraper-for-facebook`, import
+`scraper_for_facebook`, CLI `scrape-fb`, repo `Scraper-for-Facebook`) to
+**Agentic Facebook**. Behaviour is unchanged. Breaking: the import path, CLI
+command, PyPI package name, and base exception class (`ScraperForFacebookError`
+→ `AgenticFacebookError`) all changed. Install `agentic-facebook`; the old
+package is a tombstone pointing here.
+
 ## [0.3.2] - 2026-07-21
 
 ### Fixed
@@ -16,13 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The PyPI summary and keywords now match the README and the repository description, instead of still describing the v0.2.0 browser-only scraper. Package metadata is frozen per release, so this could only be corrected by publishing.
 
 ### Documentation
-- The whole documentation set rewritten for v0.3.x: twelve `docs/wiki/` pages (adding Architecture and Chaining-Recipes), a rewritten README, and CONTRIBUTING / SECURITY / CODE_OF_CONDUCT at the repository root. Pages now defer to `scrape-fb catalog` and `scrape-fb schema` for anything the CLI can describe about itself.
+- The whole documentation set rewritten for v0.3.x: twelve `docs/wiki/` pages (adding Architecture and Chaining-Recipes), a rewritten README, and CONTRIBUTING / SECURITY / CODE_OF_CONDUCT at the repository root. Pages now defer to `agentic-facebook catalog` and `agentic-facebook schema` for anything the CLI can describe about itself.
 
 
 ## [0.3.1] - 2026-07-20
 
 ### Added
-- **`scrape-fb catalog [--json]`** — the CLI describing itself: every command and flag, the exit-code contract, the output contract, the object types, and the known limitations, in one call. It is **derived, not authored**: commands and flags are introspected from the live `argparse` parser, object types come from the same `to_dict()`-anchored functions `schema` uses, and exit codes come from a single table. Anything that needs to explain this tool (docs, an agent, a `.claude` skill) can now read it instead of transcribing it and drifting.
+- **`agentic-facebook catalog [--json]`** — the CLI describing itself: every command and flag, the exit-code contract, the output contract, the object types, and the known limitations, in one call. It is **derived, not authored**: commands and flags are introspected from the live `argparse` parser, object types come from the same `to_dict()`-anchored functions `schema` uses, and exit codes come from a single table. Anything that needs to explain this tool (docs, an agent, a `.claude` skill) can now read it instead of transcribing it and drifting.
 - `tests/test_catalog.py` enforces that derivation: adding a command or flag without it appearing in the catalog fails the suite, as does a subcommand with no handler.
 
 ### Changed
@@ -44,9 +53,9 @@ output schema are unchanged apart from one new field.
   - `post <post_url>` — a single post by permalink (which a feed query cannot return).
   - `search <query>` — `--type top|posts|people|pages|groups`.
   - `group <group_url_or_id>` — one group's feed.
-- **`Comment` and `Entity` schemas**, both covered by `scrape-fb schema` / `schema --json`.
+- **`Comment` and `Entity` schemas**, both covered by `agentic-facebook schema` / `schema --json`.
 - `Post.source` (`timeline` | `newsfeed` | `group` | `search`) so chained output stays self-describing.
-- `scrape-fb login --from-chrome` (opt-in): import an existing session from local Chrome by decrypting its cookie DB. Needs the `chrome` extra: `pip install 'scraper-for-facebook[chrome]'`. See DISCLAIMER §6 — this is literal cookie extraction and usually imports your main account.
+- `agentic-facebook login --from-chrome` (opt-in): import an existing session from local Chrome by decrypting its cookie DB. Needs the `chrome` extra: `pip install 'agentic-facebook[chrome]'`. See DISCLAIMER §6 — this is literal cookie extraction and usually imports your main account.
 - A **non-bypassable active-request floor** (`--request-interval`, MIN clamped to ≥ 1.0s, jittered), the active-mode counterpart to the scroll-pause floor. Applies to every active request, including id-resolution GETs.
 - `--max-pages` (default 20) bounds active pagination depth.
 - Opt-in live tests under `tests/live/` (`SFB_LIVE_TESTS=1`), including an active-vs-passive parity test.
@@ -69,7 +78,7 @@ output schema are unchanged apart from one new field.
 ## [0.2.0] - 2026-07-07
 
 ### Added
-- `scrape-fb schema`: prints the `fetch` output object schema (field name, JSON type, one-line meaning), offline and always exit 0; `--json` emits JSON Schema (draft 2020-12). Anchored on `Post.to_dict()`'s actual output keys, not the dataclass fields, so it can't mis-document `raw` as always-present.
+- `agentic-facebook schema`: prints the `fetch` output object schema (field name, JSON type, one-line meaning), offline and always exit 0; `--json` emits JSON Schema (draft 2020-12). Anchored on `Post.to_dict()`'s actual output keys, not the dataclass fields, so it can't mis-document `raw` as always-present.
 - Every `fetch`/`login`/`status`/`doctor` flag now has a `--help` string with its human-readable default, so `--help` is authoritative standalone without reading source.
 
 ### Changed
@@ -78,12 +87,12 @@ output schema are unchanged apart from one new field.
 ## [0.1.0] - 2026-07-05
 
 ### Added
-- Initial release: `scrape-fb login` / `status` / `setup` / `doctor` / `fetch`.
+- Initial release: `agentic-facebook login` / `status` / `setup` / `doctor` / `fetch`.
 - Logged-in Facebook timeline scraping via GraphQL XHR observation (no token replay).
 - `--limit`, `--since`/`--until` retrieval with stop-reason reporting.
 - JSON and NDJSON output formats.
 - Python API: `FacebookScraper`, `Post`, `Media`, `LinkAttachment`.
 
-[Unreleased]: https://github.com/tjdwls101010/Scraper-for-Facebook/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/tjdwls101010/Scraper-for-Facebook/releases/tag/v0.2.0
-[0.1.0]: https://github.com/tjdwls101010/Scraper-for-Facebook/releases/tag/v0.1.0
+[Unreleased]: https://github.com/tjdwls101010/Agentic-Facebook/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/tjdwls101010/Agentic-Facebook/releases/tag/v0.2.0
+[0.1.0]: https://github.com/tjdwls101010/Agentic-Facebook/releases/tag/v0.1.0

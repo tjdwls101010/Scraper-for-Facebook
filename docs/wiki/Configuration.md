@@ -1,6 +1,6 @@
 # Configuration
 
-Every knob `scrape-fb` exposes — what it defaults to, what it actually changes, and which two limits you cannot turn off — for anyone tuning a run or wondering where their data went.
+Every knob `agentic-facebook` exposes — what it defaults to, what it actually changes, and which two limits you cannot turn off — for anyone tuning a run or wondering where their data went.
 
 This page is about *why* the defaults are what they are. For the bare flag list per command, see [CLI Reference](CLI-Reference.md).
 
@@ -10,23 +10,23 @@ There is no config file. Settings are flags, plus one environment variable. Stat
 
 | Platform | Data directory |
 |---|---|
-| macOS | `~/Library/Application Support/scraper-for-facebook/` |
-| Linux | `~/.local/share/scraper-for-facebook/` |
-| Windows | `%LOCALAPPDATA%\scraper-for-facebook\` |
+| macOS | `~/Library/Application Support/agentic-facebook/` |
+| Linux | `~/.local/share/agentic-facebook/` |
+| Windows | `%LOCALAPPDATA%\agentic-facebook\` |
 
 Four subdirectories live under it:
 
 ```mermaid
 flowchart TD
-    R["scraper-for-facebook/ (platform data dir)"] --> P["profiles/&lt;name&gt;/<br/>logged-in browser sessions<br/>created 0700"]
+    R["agentic-facebook/ (platform data dir)"] --> P["profiles/&lt;name&gt;/<br/>logged-in browser sessions<br/>created 0700"]
     R --> T["tokens/<br/>cached session tokens for ACTIVE mode<br/>files written 0600"]
-    R --> B["browsers/<br/>isolated Chromium install<br/>from scrape-fb setup"]
+    R --> B["browsers/<br/>isolated Chromium install<br/>from agentic-facebook setup"]
     R --> O["output/<br/>timestamped result files<br/>default --output target"]
 ```
 
 - **`profiles/<name>/`** — one persisted, logged-in browser session per profile name (cookies plus local storage). Created at `0700`: that directory *is* an authenticated Facebook session with no password attached.
 - **`tokens/`** — session tokens extracted for active mode, cached per login profile. Kept separate from the profile dir so a stale token cache can be cleared without destroying the expensive, 2FA-satisfied browser login it came from. Files are written `0600`.
-- **`browsers/`** — the isolated Chromium install that `scrape-fb setup` provisions (roughly 300 MB). Deliberately never shared with any other Playwright-based tool's browser cache, so one tool's `install` can't silently break another's. Not user-configurable; delete it and re-run `scrape-fb setup`.
+- **`browsers/`** — the isolated Chromium install that `agentic-facebook setup` provisions (roughly 300 MB). Deliberately never shared with any other Playwright-based tool's browser cache, so one tool's `install` can't silently break another's. Not user-configurable; delete it and re-run `agentic-facebook setup`.
 - **`output/`** — where results land when you don't pass `--output`.
 
 ## Login profiles: `--profile`, `--profile-dir`, `SFB_PROFILE_DIR`
@@ -34,9 +34,9 @@ flowchart TD
 A "profile" is a persisted, logged-in browser session — the same idea as a Chrome profile. Every command that touches the browser accepts `--profile`:
 
 ```bash
-scrape-fb login  --profile work
-scrape-fb status --profile work
-scrape-fb feed   --profile work --limit 10
+agentic-facebook login  --profile work
+agentic-facebook status --profile work
+agentic-facebook feed   --profile work --limit 10
 ```
 
 | Knob | Default | Effect |
@@ -55,7 +55,7 @@ Whichever root is in effect, the profile still lives at `<root>/<name>`, so the 
 
 ```bash
 export SFB_PROFILE_DIR=/Volumes/secure/fb-profiles
-scrape-fb login --profile work
+agentic-facebook login --profile work
 # -> session stored at /Volumes/secure/fb-profiles/work/
 ```
 
@@ -79,8 +79,8 @@ Both take a jittered `MIN,MAX` pair; each wait is randomized inside that range s
 `clamp_request_interval` and `clamp_scroll_pause` in `config.py` raise anything below the floor before it is ever used. Passing a lower value is not an error; it is silently raised, with a note on stderr telling you what was actually used:
 
 ```
-scrape-fb: --scroll-pause 0,0.2 raised to 0.5,0.5 (minimum is 0.5s)
-scrape-fb: --request-interval 0,0.1 raised to 1.0,1.0 (minimum is 1.0s)
+agentic-facebook: --scroll-pause 0,0.2 raised to 0.5,0.5 (minimum is 0.5s)
+agentic-facebook: --request-interval 0,0.1 raised to 1.0,1.0 (minimum is 1.0s)
 ```
 
 If you pass a MAX below the clamped MIN, the MAX is raised to match. The clamp applies **regardless of how the value arrives** — CLI flag, environment, or a direct Python API call. There is no flag, environment variable, config file, or keyword argument that disables it.
@@ -107,7 +107,7 @@ Both are ordinary, fully overridable defaults — unlike the pacing floors, noth
 If either budget runs out before `--limit` or `--since` is satisfied, the run stops with them unmet. When `--since` was requested and the stop reason was a budget or a stalled feed, the command exits **7** rather than 0 — "we genuinely don't know whether we reached that date". Raise the relevant ceiling and re-run:
 
 ```bash
-scrape-fb fetch zuck --since 2025-01-01 --max-pages 60
+agentic-facebook fetch zuck --since 2025-01-01 --max-pages 60
 ```
 
 Note that `--limit` composes with these: hitting `--limit` is a full success (exit 0) even if `--since` was never independently confirmed crossed.
@@ -123,7 +123,7 @@ Note that `--limit` composes with these: hitting `--limit` is a full success (ex
 Every retrieval command **writes to a file** and prints only a one-line summary to stderr — nothing useful reaches stdout. The default location is deliberate: captured posts contain other people's names, message text, and signed media URLs, and defaulting outside any git-tracked path makes it much harder to accidentally commit someone else's personal data. Never the current working directory, never a repo.
 
 ```bash
-scrape-fb feed --limit 30 --format ndjson --output ~/fb/feed.ndjson
+agentic-facebook feed --limit 30 --format ndjson --output ~/fb/feed.ndjson
 ```
 
 `--output` changes only where results go; it does not affect profiles, tokens, or the browser cache. Whatever path you choose, the file's contents are as sensitive as what they contain.
@@ -164,7 +164,7 @@ Pick `--mode active` when you want speed and server-side-precise `--since` filte
 
 Retrieval commands run headless by default. `--headed` is a debugging aid: it lets you watch what the session actually sees, which is the fastest way to spot a login wall, a checkpoint interstitial, or a page that simply isn't loading. It does not change pacing, results, or the output contract.
 
-`scrape-fb login` is the exception — it always opens a real, visible window, because a human has to type into it.
+`agentic-facebook login` is the exception — it always opens a real, visible window, because a human has to type into it.
 
 ## Diagnostics: `-v` / `--verbose`
 

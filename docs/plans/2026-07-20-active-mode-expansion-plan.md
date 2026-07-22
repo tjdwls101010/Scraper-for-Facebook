@@ -3,7 +3,7 @@
 **Status:** approved plan, ready to implement in a *fresh* session.
 **Companion:** [2026-07-20-recon-findings.md](./2026-07-20-recon-findings.md) — the live-captured
 `doc_id`s, variable shapes, and the end-to-end proof this plan is built on. Read it first.
-**Baseline:** `scraper-for-facebook` v0.2.0 (PyPI), 75 unit tests green, single-profile passive scraper.
+**Baseline:** `agentic-facebook` v0.2.0 (PyPI), 75 unit tests green, single-profile passive scraper.
 
 > **How to use this doc (next session):** implement in the phase order of §9. Do **not**
 > plan and implement in the same breath for each phase — each phase names a *verify* gate;
@@ -41,18 +41,18 @@ Non-goals (explicitly out of scope, per the agreed division of labor):
 
 ```
                          ┌─────────────────────────────────────────┐
-   scrape-fb login  ───▶ │ Browser (scrapling DynamicSession)       │
+   agentic-facebook login  ───▶ │ Browser (scrapling DynamicSession)       │
                          │  • one-time interactive login (persist)  │
                          │  • extract tokens (fb_dtsg/cookies/rev)  │
                          │  • refresh tokens + doc_ids when stale   │
                          └───────────────┬──────────────────────────┘
                                          │ SessionTokens (cached on disk)
                                          ▼
-   scrape-fb feed  ────▶  ActiveFetcher (FetcherSession, HTTP) ──▶ /api/graphql/
-   scrape-fb fetch ────▶      │  build body · paginate by cursor      (fast path)
-   scrape-fb comments ─▶      │  rate-limited (active floor)
-   scrape-fb search ──▶       │
-   scrape-fb group ───▶       └── on login/error/doc_id-miss ──▶ PassiveFetcher
+   agentic-facebook feed  ────▶  ActiveFetcher (FetcherSession, HTTP) ──▶ /api/graphql/
+   agentic-facebook fetch ────▶      │  build body · paginate by cursor      (fast path)
+   agentic-facebook comments ─▶      │  rate-limited (active floor)
+   agentic-facebook search ──▶       │
+   agentic-facebook group ───▶       └── on login/error/doc_id-miss ──▶ PassiveFetcher
                                                                   (browser scroll, current)
                                          │ response bytes (identical JSON either way)
                                          ▼
@@ -179,7 +179,7 @@ invocation stays. Document that deep pagination = more requests = more ban risk.
   ("what is X's circle discussing?" = `fetch X` → collect `author_url`s of sharers →
   `fetch` each → `search` topics), (3) carries the ban/PII guidance as *why*-backed rules,
   (4) documents the schema so Claude parses outputs without guessing. It installs the
-  published package (`uv tool install scraper-for-facebook`) and shells out to `scrape-fb`.
+  published package (`uv tool install agentic-facebook`) and shells out to `agentic-facebook`.
   Build it with the `harness-creator` skill.
 
 ## 9. Implementation phases (ordered; each has a verify gate)

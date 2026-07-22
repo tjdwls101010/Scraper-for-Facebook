@@ -1,6 +1,6 @@
 # Quick Start
 
-Zero to a real result in five steps, with the one thing that trips up almost every first-time user stated up front — for anyone who has just installed `scrape-fb` and wants working output.
+Zero to a real result in five steps, with the one thing that trips up almost every first-time user stated up front — for anyone who has just installed `agentic-facebook` and wants working output.
 
 ## Read this before anything else: results go to a file
 
@@ -11,17 +11,17 @@ This is the single most common mistake. Piping a retrieval command into `jq`, `g
 So the habit to build from your very first command is:
 
 ```bash
-scrape-fb <command> ... --output ./result.json   # 1. run it, choose the path
+agentic-facebook <command> ... --output ./result.json   # 1. run it, choose the path
 cat ./result.json                                # 2. then open the file
 ```
 
-Without `--output`, results still land in a file — a timestamped one under the platform data directory (`~/Library/Application Support/scraper-for-facebook/output/` on macOS), whose path is printed in the stderr summary. That default is deliberate: captured posts contain other people's personal data, so they never get written into your current directory or a git-tracked path by accident. But you will have a much better time if you name the path yourself.
+Without `--output`, results still land in a file — a timestamped one under the platform data directory (`~/Library/Application Support/agentic-facebook/output/` on macOS), whose path is printed in the stderr summary. That default is deliberate: captured posts contain other people's personal data, so they never get written into your current directory or a git-tracked path by accident. But you will have a much better time if you name the path yourself.
 
 ## 1. Install and provision
 
 ```bash
-uv tool install scraper-for-facebook   # or: pipx install scraper-for-facebook
-scrape-fb setup
+uv tool install agentic-facebook   # or: pipx install agentic-facebook
+agentic-facebook setup
 ```
 
 `setup` downloads Chromium into this tool's own isolated cache. Full detail, including why `pip install` into a shared virtualenv is a bad idea, is in [Installation](Installation.md).
@@ -31,7 +31,7 @@ scrape-fb setup
 ## 2. Log in, by hand, once
 
 ```bash
-scrape-fb login
+agentic-facebook login
 ```
 
 A real browser window opens. Log in to Facebook in it yourself — username, password, 2FA, whatever your account needs. There is no credential injection here: the tool never sees or stores your password, it just keeps the browser profile you produced.
@@ -40,13 +40,13 @@ Completion is **auto-detected**. Once the session is genuinely logged in, the co
 
 ```
 A browser window is open. Log in to Facebook there — this will continue automatically once you are (waiting up to 300s).
-Logged in. Profile saved at /Users/you/Library/Application Support/scraper-for-facebook/profiles/default
+Logged in. Profile saved at /Users/you/Library/Application Support/agentic-facebook/profiles/default
 ```
 
 ## 3. Verify the session
 
 ```bash
-scrape-fb status
+agentic-facebook status
 # status: logged_in (logged in 42s ago)
 ```
 
@@ -55,22 +55,22 @@ scrape-fb status
 | Exit | Meaning | What to do |
 |---|---|---|
 | **0** | Logged in and ready | Go fetch something |
-| **2** | Login required or session expired | Run `scrape-fb login` again |
+| **2** | Login required or session expired | Run `agentic-facebook login` again |
 | **3** | Account checkpoint — Meta flagged the session | **Stop.** Log in through a real browser and clear it. Retrying makes a temporary block permanent. |
 
-`scrape-fb status --json` prints `{"status": "logged_in", "session_age_seconds": 42.0}` to stdout for scripts.
+`agentic-facebook status --json` prints `{"status": "logged_in", "session_age_seconds": 42.0}` to stdout for scripts.
 
-If `status` looks fine but fetches still fail, run `scrape-fb doctor` — it launches the browser, navigates, and confirms a GraphQL response actually round-trips:
+If `status` looks fine but fetches still fail, run `agentic-facebook doctor` — it launches the browser, navigates, and confirms a GraphQL response actually round-trips:
 
 ```bash
-scrape-fb doctor
+agentic-facebook doctor
 # OK - captured 4 graphql response(s)
 ```
 
 ```mermaid
 flowchart LR
-    A[scrape-fb setup] --> B[scrape-fb login]
-    B --> C{scrape-fb status}
+    A[agentic-facebook setup] --> B[agentic-facebook login]
+    B --> C{agentic-facebook status}
     C -->|exit 0| D[fetch / feed / comments]
     C -->|exit 2| B
     C -->|exit 3| E["checkpoint — clear it<br/>in a real browser, do not retry"]
@@ -82,7 +82,7 @@ flowchart LR
 A profile's timeline, most recent first:
 
 ```bash
-scrape-fb fetch https://www.facebook.com/some.profile --limit 5 --output ./posts.json
+agentic-facebook fetch https://www.facebook.com/some.profile --limit 5 --output ./posts.json
 ```
 
 The summary on stderr:
@@ -126,14 +126,14 @@ cat ./posts.json
 ]
 ```
 
-Every field is explained in [Output Schema](Output-Schema.md), or run `scrape-fb schema` for the same reference offline.
+Every field is explained in [Output Schema](Output-Schema.md), or run `agentic-facebook schema` for the same reference offline.
 
 ## 5. Two more: `feed` and `comments`
 
 **Your own home news feed:**
 
 ```bash
-scrape-fb feed --limit 10 --output ./feed.json
+agentic-facebook feed --limit 10 --output ./feed.json
 ```
 
 ```
@@ -145,7 +145,7 @@ Posts from `feed` carry `"source": "newsfeed"` instead of `"timeline"`, so once 
 **A post's comments** — note this takes a post permalink, which is exactly the `url` field from the JSON above:
 
 ```bash
-scrape-fb comments https://www.facebook.com/some.profile/posts/pfbid02example \
+agentic-facebook comments https://www.facebook.com/some.profile/posts/pfbid02example \
   --sort recent --limit 20 --output ./comments.json
 ```
 
@@ -183,9 +183,9 @@ The exit code tells you which kind of problem you have — check it with `echo $
 | Exit | Meaning |
 |---|---|
 | 0 | Success |
-| 2 | Login required — run `scrape-fb login` |
+| 2 | Login required — run `agentic-facebook login` |
 | 3 | Checkpoint — clear it in a real browser, do **not** retry |
-| 4 | Zero results — either genuinely nothing there, or Facebook changed shape. Probe with `scrape-fb feed --limit 3` to tell the two apart. |
+| 4 | Zero results — either genuinely nothing there, or Facebook changed shape. Probe with `agentic-facebook feed --limit 3` to tell the two apart. |
 | 5 | Target unavailable (memorialized, blocked, restricted, nonexistent) — a definite answer, don't retry variations |
 | 7 | Partial: `--since` was requested but not confirmed reached |
 

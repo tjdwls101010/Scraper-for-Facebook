@@ -158,7 +158,7 @@ Before today, the parser had been live-tested against **one** profile, once. It 
 ## 5. Session / login findings (bugs to fix)
 
 1. **`status` / `detect_wall` gives false positives.** A 15-day-old session was actually
-   logged **out**, but `scrape-fb status` reported `logged_in`. Cause: `detect_wall()`
+   logged **out**, but `agentic-facebook status` reported `logged_in`. Cause: `detect_wall()`
    only checks the URL for `/login` or `/checkpoint`, but Facebook serves the **login
    form in-place at `https://www.facebook.com/` with HTTP 200** (no redirect). The
    response body is a `caa_login_form_data` payload (`fb_api_req_friendly_name:

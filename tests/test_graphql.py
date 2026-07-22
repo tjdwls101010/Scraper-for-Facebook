@@ -8,10 +8,10 @@ from datetime import UTC, datetime
 
 import pytest
 
-from scraper_for_facebook import graphql, queries
-from scraper_for_facebook.config import MIN_REQUEST_INTERVAL_SECONDS
-from scraper_for_facebook.errors import ActiveTransportError, SessionExpiredError
-from scraper_for_facebook.tokens import SessionTokens
+from agentic_facebook import graphql, queries
+from agentic_facebook.config import MIN_REQUEST_INTERVAL_SECONDS
+from agentic_facebook.errors import ActiveTransportError, SessionExpiredError
+from agentic_facebook.tokens import SessionTokens
 
 
 def _tokens() -> SessionTokens:

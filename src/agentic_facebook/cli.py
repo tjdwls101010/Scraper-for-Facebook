@@ -1,4 +1,4 @@
-"""``scrape-fb`` command-line entry point (plan §10)."""
+"""``agentic-facebook`` command-line entry point (plan §10)."""
 
 from __future__ import annotations
 
@@ -141,9 +141,9 @@ class _ArgumentParser(argparse.ArgumentParser):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = _ArgumentParser(
-        prog="scrape-fb", description="Scrape your own logged-in Facebook timeline."
+        prog="agentic-facebook", description="Scrape your own logged-in Facebook timeline."
     )
-    parser.add_argument("--version", action="version", version=f"scrape-fb {__version__}")
+    parser.add_argument("--version", action="version", version=f"agentic-facebook {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     login_p = subparsers.add_parser(
@@ -175,7 +175,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Opt-in: import an existing Facebook session from your local Chrome instead "
             "of logging in. This decrypts Chrome's cookies via the Keychain (may prompt) "
             "and usually means importing your MAIN account — against this tool's "
-            "throwaway-account guidance. Needs: pip install 'scraper-for-facebook[chrome]'."
+            "throwaway-account guidance. Needs: pip install 'agentic-facebook[chrome]'."
         ),
     )
     login_p.add_argument(
@@ -373,7 +373,7 @@ def _cmd_login(args: argparse.Namespace) -> int:
         print(f"Logged in. Profile saved at {profile_dir}", file=sys.stderr)
         return 0
     print(
-        "Could not verify login (still see a login wall). Try again: scrape-fb login",
+        "Could not verify login (still see a login wall). Try again: agentic-facebook login",
         file=sys.stderr,
     )
     return 2
@@ -495,7 +495,7 @@ def _run_retrieval(args: argparse.Namespace, call) -> tuple[retrieve.RetrieveRes
     try:
         return call(), 0
     except (LoginRequiredError, SessionExpiredError) as exc:
-        print(f"{exc} Run: scrape-fb login --profile {args.profile}", file=sys.stderr)
+        print(f"{exc} Run: agentic-facebook login --profile {args.profile}", file=sys.stderr)
         return None, exits.LOGIN_REQUIRED
     except ChallengeError as exc:
         print(str(exc), file=sys.stderr)
@@ -711,7 +711,7 @@ def _emit_posts(
                 if result.stop_reason == scroll.STOP_UNKNOWN_ERROR
                 else " If this profile is known-good, this may indicate a Facebook "
                 "response-shape change — see "
-                "https://github.com/tjdwls101010/Scraper-for-Facebook/issues"
+                "https://github.com/tjdwls101010/Agentic-Facebook/issues"
             ),
             file=sys.stderr,
         )

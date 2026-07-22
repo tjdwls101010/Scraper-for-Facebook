@@ -10,7 +10,7 @@ Automating any Meta account to collect data — including logging in with a real
 
 ## 2. Publishing this tool exposes its maintainer, not just its users
 
-This package is named `scraper-for-facebook`, published under a real GitHub identity, and distributed via PyPI Trusted Publishing, which binds each release to a named GitHub repository and account. That is a deliberate, informed choice by the maintainer — but it means the maintainer is identifiable in a way an anonymous or unpublished tool would not be. Meta has previously pursued named authors and operators of public Facebook/Instagram scrapers, historically skewed toward commercial mass-scraping and data-broker operations rather than small personal-scale tools — but the exposure exists regardless of scale, and this is recorded here so the choice stays informed.
+This package is named `agentic-facebook`, published under a real GitHub identity, and distributed via PyPI Trusted Publishing, which binds each release to a named GitHub repository and account. That is a deliberate, informed choice by the maintainer — but it means the maintainer is identifiable in a way an anonymous or unpublished tool would not be. Meta has previously pursued named authors and operators of public Facebook/Instagram scrapers, historically skewed toward commercial mass-scraping and data-broker operations rather than small personal-scale tools — but the exposure exists regardless of scale, and this is recorded here so the choice stays informed.
 
 ## 3. You may become a "data controller" for other people's data
 
@@ -33,7 +33,7 @@ Don't commit scraped output to a public (or even private) git repository, and do
 
 ## 6. Your login profile is a live, unencrypted session credential
 
-`scrape-fb login` persists your Facebook session (cookies, local storage) to a directory on disk, permissioned `0700`. Anyone who can read that directory has authenticated access to your Facebook account — no password or 2FA required, because the session already satisfied both. This is **less** protected than your regular browser's keychain-encrypted cookie store. Concretely:
+`agentic-facebook login` persists your Facebook session (cookies, local storage) to a directory on disk, permissioned `0700`. Anyone who can read that directory has authenticated access to your Facebook account — no password or 2FA required, because the session already satisfied both. This is **less** protected than your regular browser's keychain-encrypted cookie store. Concretely:
 - **Do not** back this directory up to Time Machine, sync it via iCloud/Dropbox, or commit it anywhere.
 - If the machine or disk is lost or compromised, **revoke the session immediately** by logging out of that session from facebook.com (Settings → Security → Where You're Logged In), not just by deleting the local directory.
 
@@ -41,7 +41,7 @@ Since v0.3.0 the same warning covers the **token cache** (`<data dir>/tokens/<pr
 
 ### `--from-chrome` is different in kind — and opt-in for that reason
 
-`scrape-fb login --from-chrome` reads Chrome's encryption key from your macOS Keychain and **decrypts the Facebook cookies out of your everyday browser's cookie database**. That is literal cookie extraction — precisely what the default path is designed to avoid — and it will typically import your **main** account, contradicting the throwaway-account guidance in §1. It exists because copying a Chrome profile doesn't work (Playwright forces `--use-mock-keychain`, so Chrome can't decrypt its own cookies). Use `scrape-fb login` unless you specifically need this.
+`agentic-facebook login --from-chrome` reads Chrome's encryption key from your macOS Keychain and **decrypts the Facebook cookies out of your everyday browser's cookie database**. That is literal cookie extraction — precisely what the default path is designed to avoid — and it will typically import your **main** account, contradicting the throwaway-account guidance in §1. It exists because copying a Chrome profile doesn't work (Playwright forces `--use-mock-keychain`, so Chrome can't decrypt its own cookies). Use `agentic-facebook login` unless you specifically need this.
 
 ## 7. No warranty
 

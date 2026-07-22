@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "0.3.2"
+__version__ = "0.4.0"
 
 from collections.abc import Iterator
 from datetime import date
@@ -13,11 +13,11 @@ from . import retrieve as retrieve_module
 from . import session as session_module
 from .config import DEFAULT_MAX_SCROLLS, DEFAULT_PROFILE_NAME, DEFAULT_SCROLL_PAUSE
 from .errors import (
+    AgenticFacebookError,
     ChallengeError,
     InvalidIdentifierError,
     LoginRequiredError,
     ProfileUnavailableError,
-    ScraperForFacebookError,
     SessionClosedError,
     SessionExpiredError,
 )
@@ -32,7 +32,7 @@ __all__ = [
     "LinkAttachment",
     "Status",
     "RetrieveResult",
-    "ScraperForFacebookError",
+    "AgenticFacebookError",
     "LoginRequiredError",
     "SessionExpiredError",
     "ChallengeError",

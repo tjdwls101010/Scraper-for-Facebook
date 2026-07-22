@@ -14,7 +14,7 @@ There are no long-term support branches and no backports. Fixes ship in a new pa
 
 ## Reporting a vulnerability
 
-**Report privately through GitHub's private vulnerability reporting.** Go to the [repository](https://github.com/tjdwls101010/Scraper-for-Facebook) → the **Security** tab → **"Report a vulnerability"**. That opens a report visible only to the maintainer.
+**Report privately through GitHub's private vulnerability reporting.** Go to the [repository](https://github.com/tjdwls101010/Agentic-Facebook) → the **Security** tab → **"Report a vulnerability"**. That opens a report visible only to the maintainer.
 
 **Please do not open a public issue, discussion, or pull request for a security problem**, and please don't post details on social media or a blog before a fix is available. A public report on this particular tool is worse than usual: the vulnerabilities that matter here involve live Facebook session credentials, so a public disclosure hands a working attack to anyone reading before affected users can act.
 
@@ -26,7 +26,7 @@ This tool handles live account credentials, which is what makes its security sur
 
 - **The login profile directory** (permissioned `0700`) holds the persisted browser session — cookies and local storage. Anyone who can read it has authenticated access to the Facebook account, with **no password and no 2FA challenge**, because the session already satisfied both.
 - **The token cache** (`<data dir>/tokens/<profile>.json`, permissioned `0600`) holds session cookies plus `fb_dtsg`. It is exactly as sensitive as the profile directory.
-- **`scrape-fb login --from-chrome`** (opt-in, requires the `chrome` extra) reads Chrome's encryption key from the macOS Keychain and decrypts the Facebook cookies out of your everyday browser's cookie database.
+- **`agentic-facebook login --from-chrome`** (opt-in, requires the `chrome` extra) reads Chrome's encryption key from the macOS Keychain and decrypts the Facebook cookies out of your everyday browser's cookie database.
 
 In scope, and taken seriously:
 
@@ -41,7 +41,7 @@ In scope, and taken seriously:
 ### What is out of scope
 
 - **That this tool violates Facebook's Terms of Service.** This is a documented, intentional property of the project, not a defect — see [DISCLAIMER.md](DISCLAIMER.md) §1. Reports on this theme will be closed with a pointer to that document.
-- **Facebook-side changes that merely break scraping** — a rotated `doc_id`, a changed response shape, a new challenge flow, an account checkpoint or ban. These are ordinary bugs (or expected behavior); please file them on the public [issue tracker](https://github.com/tjdwls101010/Scraper-for-Facebook/issues) instead.
+- **Facebook-side changes that merely break scraping** — a rotated `doc_id`, a changed response shape, a new challenge flow, an account checkpoint or ban. These are ordinary bugs (or expected behavior); please file them on the public [issue tracker](https://github.com/tjdwls101010/Agentic-Facebook/issues) instead.
 - **That output files are unredacted.** `--output` writes the full capture on purpose; that is what the tool is for. The obligations that come with holding that data are covered in DISCLAIMER §3 and §4.
 - **That `--from-chrome` decrypts your own local Chrome cookies.** That is the documented, opt-in purpose of the flag (DISCLAIMER §6). A flaw *in how* it does so is in scope; the fact that it does so is not.
 - Findings that require an attacker who already has read access to your user account on your machine — at that point the session is compromised regardless of this tool. (Exception: if this tool makes that meaningfully *easier* than the system default, for example by storing something your browser keeps in the keychain, say so — that framing is in scope.)

@@ -1,6 +1,6 @@
 # Pinned dev/CI dependency snapshot for reproducible CI runs (plan §14).
 # NOT the published package's dependency spec — that lives in pyproject.toml.
-# Regenerate with: uv pip freeze --python .venv/bin/python | grep -v '^scraper'
+# Regenerate with: uv pip freeze --python .venv/bin/python | grep -v '^agentic'
 anyio==4.14.1
 apify-fingerprint-datapoints==0.13.0
 browserforge==1.2.4

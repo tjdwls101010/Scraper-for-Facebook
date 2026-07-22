@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
-from scraper_for_facebook import parse
-from scraper_for_facebook.model import (
+from agentic_facebook import parse
+from agentic_facebook.model import (
     FIELD_DESCRIPTIONS,
     LinkAttachment,
     Media,

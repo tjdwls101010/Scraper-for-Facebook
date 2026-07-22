@@ -1,6 +1,6 @@
 import json
 
-from scraper_for_facebook import parse
+from agentic_facebook import parse
 
 
 def test_body_is_decoded_from_bytes_not_str(load_fixture):

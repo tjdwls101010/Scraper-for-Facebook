@@ -138,7 +138,8 @@ def _extract_from_html(html: str, cookies: dict[str, str]) -> SessionTokens:
 
     if not found["fb_dtsg"] or "c_user" not in cookies:
         raise SessionExpiredError(
-            "These cookies are not a logged-in Facebook session. Log in again: scrape-fb login"
+            "These cookies are not a logged-in Facebook session. "
+            "Log in again: agentic-facebook login"
         )
     return SessionTokens(
         fb_dtsg=found["fb_dtsg"],
@@ -194,7 +195,8 @@ def refresh_from_browser(profile_dir: Path, *, headless: bool = True) -> Session
         # exceptions (see scroll.py's docstring) — surface it as the auth
         # failure it almost certainly is rather than a bare KeyError.
         raise SessionExpiredError(
-            "Could not extract session tokens from the browser. Log in again: scrape-fb login"
+            "Could not extract session tokens from the browser. "
+            "Log in again: agentic-facebook login"
         )
     return holder["tokens"]
 

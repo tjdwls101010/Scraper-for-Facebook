@@ -306,7 +306,7 @@ def fetch_group(
     """Posts from one group's feed. Active-only."""
     if not profile_dir.exists():
         raise LoginRequiredError(
-            f"No login profile at {profile_dir}. Run: scrape-fb login --profile <name>"
+            f"No login profile at {profile_dir}. Run: agentic-facebook login --profile <name>"
         )
     fetcher = open_fetcher(
         profile_dir, profile_name, headless=headless, request_interval=request_interval
@@ -349,7 +349,7 @@ def search(
         )
     if not profile_dir.exists():
         raise LoginRequiredError(
-            f"No login profile at {profile_dir}. Run: scrape-fb login --profile <name>"
+            f"No login profile at {profile_dir}. Run: agentic-facebook login --profile <name>"
         )
 
     fetcher = open_fetcher(
@@ -479,7 +479,7 @@ def fetch_post(
     """One post, by permalink URL. Active-only."""
     if not profile_dir.exists():
         raise LoginRequiredError(
-            f"No login profile at {profile_dir}. Run: scrape-fb login --profile <name>"
+            f"No login profile at {profile_dir}. Run: agentic-facebook login --profile <name>"
         )
     fetcher = open_fetcher(
         profile_dir, profile_name, headless=headless, request_interval=request_interval
@@ -514,7 +514,7 @@ def fetch_comments(
         )
     if not profile_dir.exists():
         raise LoginRequiredError(
-            f"No login profile at {profile_dir}. Run: scrape-fb login --profile <name>"
+            f"No login profile at {profile_dir}. Run: agentic-facebook login --profile <name>"
         )
 
     fetcher = open_fetcher(
@@ -658,7 +658,7 @@ def fetch_feed(
     """
     if not profile_dir.exists():
         raise LoginRequiredError(
-            f"No login profile at {profile_dir}. Run: scrape-fb login --profile <name>"
+            f"No login profile at {profile_dir}. Run: agentic-facebook login --profile <name>"
         )
     fetcher = open_fetcher(
         profile_dir, profile_name, headless=headless, request_interval=request_interval
@@ -701,7 +701,7 @@ def fetch_profile(
 
     if not profile_dir.exists():
         raise LoginRequiredError(
-            f"No login profile at {profile_dir}. Run: scrape-fb login --profile <name>"
+            f"No login profile at {profile_dir}. Run: agentic-facebook login --profile <name>"
         )
 
     if mode in ("auto", "active"):
@@ -724,7 +724,8 @@ def fetch_profile(
             if mode == "active":
                 raise
             print(
-                f"scrape-fb: active mode failed ({exc}); falling back to browser", file=sys.stderr
+                f"agentic-facebook: active mode failed ({exc}); falling back to browser",
+                file=sys.stderr,
             )
 
     return _fetch_passive(
@@ -763,10 +764,12 @@ def _fetch_passive(
         if outcome.wall_detected == "checkpoint":
             raise ChallengeError(
                 "Facebook checkpoint detected mid-fetch. Log in again in a real "
-                "browser, then retry: scrape-fb login"
+                "browser, then retry: agentic-facebook login"
             )
         if outcome.wall_detected == "login":
-            raise SessionExpiredError("Session expired mid-fetch. Log in again: scrape-fb login")
+            raise SessionExpiredError(
+                "Session expired mid-fetch. Log in again: agentic-facebook login"
+            )
         if outcome.profile_unavailable:
             raise ProfileUnavailableError(
                 f"Profile unavailable (memorialized, blocked, restricted, or nonexistent): {url}"

@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import json
 
-from scraper_for_facebook import catalog, exits
-from scraper_for_facebook.cli import _HANDLERS, build_parser
+from agentic_facebook import catalog, exits
+from agentic_facebook.cli import _HANDLERS, build_parser
 
 
 def _catalog() -> dict:
@@ -84,9 +84,9 @@ def test_exit_codes_come_from_the_single_source():
 
 def test_object_types_match_the_schema_command():
     """One source of truth for fields: the same to_dict()-anchored functions."""
-    from scraper_for_facebook.comments import schema_fields as comment_fields
-    from scraper_for_facebook.model import schema_fields as post_fields
-    from scraper_for_facebook.search import schema_fields as entity_fields
+    from agentic_facebook.comments import schema_fields as comment_fields
+    from agentic_facebook.model import schema_fields as post_fields
+    from agentic_facebook.search import schema_fields as entity_fields
 
     types = _catalog()["object_types"]
     assert types["Post"] == post_fields()
@@ -102,7 +102,7 @@ def test_output_contract_leads_with_the_file_not_stdout_trap():
 
 def test_catalog_is_json_serializable():
     """It is meant to be consumed programmatically — argparse defaults can be exotic."""
-    assert json.loads(json.dumps(_catalog()))["tool"] == "scrape-fb"
+    assert json.loads(json.dumps(_catalog()))["tool"] == "agentic-facebook"
 
 
 def test_render_text_lists_every_command():

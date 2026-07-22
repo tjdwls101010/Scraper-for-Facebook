@@ -1,8 +1,8 @@
 from datetime import UTC, date, datetime
 
-from scraper_for_facebook import scroll
-from scraper_for_facebook.model import Post
-from scraper_for_facebook.retrieve import _apply_window, _since_reached
+from agentic_facebook import scroll
+from agentic_facebook.model import Post
+from agentic_facebook.retrieve import _apply_window, _since_reached
 
 CAPTURED_AT = datetime(2026, 7, 5, tzinfo=UTC)
 

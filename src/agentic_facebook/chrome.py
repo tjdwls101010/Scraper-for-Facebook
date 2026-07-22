@@ -12,7 +12,7 @@ Keychain entry, every cookie fails to decrypt, and the copy opens logged out
 (recon §5.4).
 
 Importing an everyday browser usually means importing your *main* account —
-against this project's throwaway-account guidance. Prefer ``scrape-fb login``.
+against this project's throwaway-account guidance. Prefer ``agentic-facebook login``.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from .errors import ScraperForFacebookError
+from .errors import AgenticFacebookError
 
 #: Constants of Chrome's macOS cookie encryption (stable for many years).
 _SALT = b"saltysalt"
@@ -34,7 +34,7 @@ _KEY_LENGTH = 16
 _IV = b" " * 16
 
 
-class ChromeImportError(ScraperForFacebookError):
+class ChromeImportError(AgenticFacebookError):
     """Chrome's cookies could not be read or decrypted."""
 
 
@@ -115,7 +115,7 @@ def _decrypt(value: bytes, key: bytes) -> str:
     except ImportError as exc:  # pragma: no cover - depends on an optional extra
         raise ChromeImportError(
             "--from-chrome needs the optional 'chrome' extra: "
-            "pip install 'scraper-for-facebook[chrome]'"
+            "pip install 'agentic-facebook[chrome]'"
         ) from exc
 
     if not value.startswith(b"v10"):

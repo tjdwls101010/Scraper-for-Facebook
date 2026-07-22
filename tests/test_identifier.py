@@ -1,7 +1,7 @@
 import pytest
 
-from scraper_for_facebook.errors import InvalidIdentifierError
-from scraper_for_facebook.profiles import normalize_target_identifier, validate_permalink_url
+from agentic_facebook.errors import InvalidIdentifierError
+from agentic_facebook.profiles import normalize_target_identifier, validate_permalink_url
 
 
 @pytest.mark.parametrize(
